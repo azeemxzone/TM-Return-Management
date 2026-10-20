@@ -1,0 +1,6 @@
+{
+  "name": "TABBYMART Returns & Claims Management System",
+  "description": "Warehouse returns receipt, automated SKU variant & weight lookup, SPF/T-Safe marketplace claims tracking, and Google Apps Script Sheets sync for TABBYMART operations.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
