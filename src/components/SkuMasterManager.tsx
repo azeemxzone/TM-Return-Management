@@ -88,7 +88,7 @@ export const SkuMasterManager: React.FC<SkuMasterManagerProps> = ({
     e.preventDefault();
     const cleanCode = skuCode.trim().toUpperCase();
     if (!cleanCode) {
-      alert('Master SKU Code is required.');
+      setSyncFeedback({ type: 'error', text: 'Master SKU Code is required.' });
       return;
     }
 
@@ -178,7 +178,7 @@ export const SkuMasterManager: React.FC<SkuMasterManagerProps> = ({
   const handleNormalizeNow = () => {
     StorageService.saveSkuMaster(skuMaster);
     const updated = StorageService.getSkuVariants();
-    alert(`SKU Variants normalized from Master Catalog. ${updated.length} aliases generated.`);
+    setSyncFeedback({ type: 'success', text: `SKU Variants normalized from Master Catalog. ${updated.length} aliases generated.` });
   };
 
   const filteredMaster = skuMaster.filter((item) => {

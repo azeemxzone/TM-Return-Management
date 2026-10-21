@@ -48,12 +48,26 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
     timestamp?: string;
   } | null>(null);
   const [isAuthTesting, setIsAuthTesting] = useState<boolean>(false);
+  const [codeGsContent, setCodeGsContent] = useState<string>('');
 
   useEffect(() => {
     if (initialSubTab) {
       setActiveSubTab(initialSubTab);
     }
   }, [initialSubTab]);
+
+  useEffect(() => {
+    fetch('/gas/Code.gs')
+      .then((r) => r.text())
+      .then((txt) => {
+        if (txt && txt.length > 50) {
+          setCodeGsContent(txt);
+        }
+      })
+      .catch((err) => console.warn('Could not load Code.gs preview', err));
+  }, []);
+
+  const [configSavedToast, setConfigSavedToast] = useState<string | null>(null);
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -65,7 +79,8 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
     StorageService.saveGasUrl(gasUrl);
     StorageService.saveSheetId(sheetId);
     StorageService.saveWarehousePasscode(passcode);
-    alert('Configuration & Security Passcode saved! The app is authorized to synchronize with "Warehouse Returns Master & P&L Ledger".');
+    setConfigSavedToast('✓ Configuration & Security Passcode saved! The app is authorized to synchronize with "Warehouse Returns Master & P&L Ledger".');
+    setTimeout(() => setConfigSavedToast(null), 5000);
   };
 
   const handleTestConnection = async () => {
@@ -302,11 +317,18 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
           </div>
           <button
             onClick={handleSaveConfig}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition shadow-xs"
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition shadow-xs cursor-pointer"
           >
             Save Configuration
           </button>
         </div>
+
+        {configSavedToast && (
+          <div className="mt-3 p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span>{configSavedToast}</span>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
           <div>
@@ -647,45 +669,75 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
       {/* Sub-Tab 4: Backend Code.gs File */}
       {activeSubTab === 'code_gs' && (
         <div
-          className={`rounded-3xl p-6 sm:p-8 space-y-4 border ${
+          className={`rounded-3xl p-6 sm:p-8 space-y-5 border ${
             isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'
           }`}
         >
-          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
             <div>
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-white font-mono">
-                gas/Code.gs (Google Apps Script Backend)
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white font-mono flex items-center gap-2">
+                <FileCode2 className="w-5 h-5 text-amber-500" />
+                <span>gas/Code.gs (Latest Backend Script)</span>
               </h3>
-              <p className="text-xs text-slate-500">
-                Pristine production backend script with LockService concurrency protection and duplicate check.
+              <p className="text-xs text-slate-500 mt-0.5">
+                Full-featured script with permanent row deletion, in-place modify updates, duplicate detection, and LockService safety.
               </p>
             </div>
             <button
+              type="button"
               onClick={() => {
-                fetch('/gas/Code.gs')
-                  .then((r) => r.text())
-                  .then((txt) => copyToClipboard(txt, 'code_gs_full'));
+                const textToCopy = codeGsContent || '';
+                if (textToCopy) {
+                  copyToClipboard(textToCopy, 'code_gs_full');
+                } else {
+                  fetch('/gas/Code.gs')
+                    .then((r) => r.text())
+                    .then((txt) => copyToClipboard(txt, 'code_gs_full'));
+                }
               }}
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition"
+              className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition shadow-sm cursor-pointer shrink-0"
             >
-              {copiedKey === 'code_gs_full' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedKey === 'code_gs_full' ? 'Copied Entire Code.gs!' : 'Copy Complete Code.gs'}</span>
+              {copiedKey === 'code_gs_full' ? <Check className="w-4 h-4 text-slate-950" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedKey === 'code_gs_full' ? '✓ Copied Entire Code.gs!' : 'Copy Complete Code.gs (1-Click)'}</span>
             </button>
           </div>
 
-          <div className="p-4 rounded-2xl border font-mono text-xs overflow-y-auto max-h-[450px] leading-relaxed bg-slate-950 text-slate-200 border-slate-800">
-            <pre>
-{`/**
- * TABBYMART RETURNS & CLAIMS MANAGEMENT SYSTEM - BACKEND (Code.gs)
- * Production Release for "Warehouse Returns Master & P&L Ledger"
- * 
- * Features:
- * - Direct append to "Warehouse Returns Master & P&L Ledger"
- * - LockService 30-second concurrency lock
- * - Simplified Condition & Disposition tracking
- * - Amazon SPF and T-Safe Claims logging
- */`}
-            </pre>
+          {/* CRITICAL DEPLOYMENT INSTRUCTION BANNER */}
+          <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/50 text-amber-950 dark:text-amber-100 space-y-2 text-xs">
+            <div className="font-extrabold flex items-center gap-2 text-sm text-amber-900 dark:text-amber-200">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>CRITICAL: Why Deletions &amp; Modifications Require a New Web App Version</span>
+            </div>
+            <p className="leading-relaxed">
+              Google Apps Script Web Apps freeze the code at the exact moment of deployment. If you edited code or replaced <code>Code.gs</code> without selecting <strong>&ldquo;New version&rdquo;</strong>, Google Sheet continues running the old script that didn&apos;t support the delete or in-place modify endpoints!
+            </p>
+            <div className="pt-2 border-t border-amber-500/30 font-semibold space-y-1">
+              <p className="font-bold text-amber-950 dark:text-amber-100">To apply fixes to your active Google Sheet immediately:</p>
+              <ol className="list-decimal pl-5 space-y-1 text-slate-700 dark:text-slate-200">
+                <li>Click <strong>&ldquo;Copy Complete Code.gs&rdquo;</strong> above.</li>
+                <li>In your Google Sheet, go to <strong>Extensions &gt; Apps Script</strong>.</li>
+                <li>Select all existing code in <code>Code.gs</code> and paste the new code. Save (Ctrl+S or Cmd+S).</li>
+                <li>
+                  Click <strong>Deploy &gt; Manage deployments</strong> (top right).
+                </li>
+                <li>
+                  Click the <strong>Pencil (Edit) icon</strong> next to your active Web App deployment.
+                </li>
+                <li>
+                  Under <strong>Version</strong>, click the dropdown and choose <strong>&ldquo;New version&rdquo;</strong>.
+                </li>
+                <li>
+                  Click <strong>Deploy</strong> and then <strong>Done</strong>. Your existing Web App URL will now run the updated delete &amp; modify engine!
+                </li>
+              </ol>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Code Preview:</span>
+            <div className="p-4 rounded-2xl border font-mono text-xs overflow-y-auto max-h-[380px] leading-relaxed bg-slate-950 text-slate-200 border-slate-800">
+              <pre className="whitespace-pre-wrap">{codeGsContent || '// Loading latest Code.gs...'}</pre>
+            </div>
           </div>
         </div>
       )}

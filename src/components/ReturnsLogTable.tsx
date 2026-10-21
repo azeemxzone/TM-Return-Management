@@ -49,6 +49,8 @@ export const ReturnsLogTable: React.FC<ReturnsLogTableProps> = ({
   // Dedicated In-App Delete Confirmation Modal State
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<ReturnRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [isSavingInspection, setIsSavingInspection] = useState<boolean>(false);
+  const [tableToast, setTableToast] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   const openInspectionModal = (r: ReturnRecord) => {
     setSelectedReturn(r);
@@ -66,22 +68,39 @@ export const ReturnsLogTable: React.FC<ReturnsLogTableProps> = ({
   const handleExecuteDelete = async () => {
     if (!deleteConfirmTarget) return;
     setIsDeleting(true);
+    const targetEntryId = deleteConfirmTarget.returnEntryId;
+    const targetOrderId = deleteConfirmTarget.originalOrderId;
     try {
-      await StorageService.deleteReturnAsync(deleteConfirmTarget.returnEntryId, operatorName, deleteConfirmTarget.originalOrderId);
+      const delResult = await StorageService.deleteReturnAsync(targetEntryId, operatorName, targetOrderId);
       if (onDeleteReturn) {
-        onDeleteReturn(deleteConfirmTarget.returnEntryId);
+        onDeleteReturn(targetEntryId);
       }
-      if (selectedReturn?.returnEntryId === deleteConfirmTarget.returnEntryId) {
+      if (selectedReturn?.returnEntryId === targetEntryId) {
         setSelectedReturn(null);
       }
       setDeleteConfirmTarget(null);
+
+      setTableToast({
+        type: delResult.success ? 'success' : 'error',
+        text: delResult.message || (delResult.success 
+          ? `✓ Permanently deleted record "${targetEntryId}" for Order "${targetOrderId}" from Google Sheets.`
+          : `Notice: Local record deleted, Google Sheets sync status: ${delResult.message}`)
+      });
+      setTimeout(() => setTableToast(null), 6000);
+    } catch (err: any) {
+      setTableToast({
+        type: 'error',
+        text: `Deletion notice: ${err?.message || 'Error communicating with Google Sheets.'}`
+      });
+      setTimeout(() => setTableToast(null), 6000);
     } finally {
       setIsDeleting(false);
     }
   };
 
-  const handleSaveModal = () => {
+  const handleSaveModal = async () => {
     if (!selectedReturn) return;
+    setIsSavingInspection(true);
     const now = StorageService.formatNormalTimestamp(new Date());
     const updated: ReturnRecord = {
       ...selectedReturn,
@@ -96,22 +115,34 @@ export const ReturnsLogTable: React.FC<ReturnsLogTableProps> = ({
       claimEligible: modalItemCondition === 'Not Sellable' || modalDisposition === 'Claim Filing Required (SPF/T-Safe)'
     };
 
-    const allReturns = StorageService.getReturns();
-    const idx = allReturns.findIndex((x) => x.returnEntryId === updated.returnEntryId);
-    if (idx !== -1) {
-      allReturns[idx] = updated;
-      StorageService.saveReturns(allReturns);
-      StorageService.logAudit(
-        operatorName,
-        'UPDATE_INSPECTION',
-        'Return_Log',
-        updated.returnEntryId,
-        `Condition: ${modalItemCondition}, Disposition: ${modalDisposition}`
-      );
-    }
+    // 1. Update in LocalStorage
+    StorageService.updateReturnRecord(updated, operatorName);
 
+    // 2. Update React parent state
     onUpdateReturn(updated);
-    setSelectedReturn(null);
+
+    // 3. Sync update to Google Sheets
+    try {
+      const syncResult = await StorageService.syncReturnToGas(updated, true);
+      setSelectedReturn(null);
+
+      setTableToast({
+        type: syncResult.success ? 'success' : 'error',
+        text: syncResult.message || (syncResult.success 
+          ? `✓ Updated inspection for "${updated.returnEntryId}" in Google Sheet.` 
+          : 'Inspection saved locally; Google Sheets update pending.')
+      });
+      setTimeout(() => setTableToast(null), 6000);
+    } catch (syncErr: any) {
+      setSelectedReturn(null);
+      setTableToast({
+        type: 'error',
+        text: `Inspection saved locally. Google Sheets notice: ${syncErr?.message || 'Check network connection'}`
+      });
+      setTimeout(() => setTableToast(null), 6000);
+    } finally {
+      setIsSavingInspection(false);
+    }
   };
 
   const filtered = returns.filter((r) => {
@@ -134,6 +165,35 @@ export const ReturnsLogTable: React.FC<ReturnsLogTableProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Real-time Google Sheets Operation Feedback Toast */}
+      {tableToast && (
+        <div
+          className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center justify-between gap-3 shadow-md animate-in fade-in duration-150 border ${
+            tableToast.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-800 dark:text-emerald-200'
+              : tableToast.type === 'error'
+              ? 'bg-rose-500/15 border-rose-500/40 text-rose-800 dark:text-rose-200'
+              : 'bg-amber-500/15 border-amber-500/40 text-amber-800 dark:text-amber-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {tableToast.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            ) : (
+              <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
+            )}
+            <span>{tableToast.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTableToast(null)}
+            className="p-1 hover:bg-black/10 rounded-lg text-slate-500 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Search & Filter Bar */}
       <div
         className={`rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 border transition-colors ${
@@ -556,10 +616,18 @@ export const ReturnsLogTable: React.FC<ReturnsLogTableProps> = ({
                 </button>
                 <button
                   type="button"
+                  disabled={isSavingInspection}
                   onClick={handleSaveModal}
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
-                  Save Decisions
+                  {isSavingInspection ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving to Sheet...</span>
+                    </>
+                  ) : (
+                    <span>Save Decisions</span>
+                  )}
                 </button>
               </div>
             </div>

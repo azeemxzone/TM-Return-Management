@@ -354,7 +354,7 @@ export const ReturnsForm: React.FC<ReturnsFormProps> = ({
     setIsDeletingRecord(true);
     try {
       // 1. Delete from local storage and await synchronization with Google Apps Script Web App
-      await StorageService.deleteReturnAsync(returnEntryId, operatorName, targetOrdId);
+      const delResult = await StorageService.deleteReturnAsync(returnEntryId, operatorName, targetOrdId);
 
       // 2. Notify parent state so all queue tables and counters update immediately
       if (onDeleteReturn) {
@@ -370,10 +370,18 @@ export const ReturnsForm: React.FC<ReturnsFormProps> = ({
       // 4. Close the popup modal
       setDeleteConfirmTarget(null);
 
-      // 5. Positive feedback toast
+      // 5. Positive feedback toast with real Google Sheets status
       setStatusToast({
-        type: 'success',
-        text: `✓ Record "${returnEntryId}" for Order "${targetOrdId}" permanently deleted from Google Sheets and blank lines removed.`
+        type: delResult.success ? 'success' : 'error',
+        text: delResult.message || (delResult.success
+          ? `✓ Record "${returnEntryId}" for Order "${targetOrdId}" permanently deleted from Google Sheets.`
+          : `Notice: Local record deleted, Google Sheets sync status: ${delResult.message}`)
+      });
+      setTimeout(() => setStatusToast(null), 6000);
+    } catch (err: any) {
+      setStatusToast({
+        type: 'error',
+        text: `Deletion notice: ${err?.message || 'Error communicating with Google Sheets.'}`
       });
       setTimeout(() => setStatusToast(null), 6000);
     } finally {
@@ -480,25 +488,35 @@ export const ReturnsForm: React.FC<ReturnsFormProps> = ({
 
     // If an existing record was found for this Order ID and user is NOT yet in modify mode, guide them
     if (existingRecordForOrder && !editingReturnId) {
-      alert(
-        `Order ID "${orderId.trim()}" is already logged under Return ID "${existingRecordForOrder.returnEntryId}".\n\nPlease click "Load to Modify" to edit this record, or "Delete Record" if it was wrongly entered.`
-      );
+      setStatusToast({
+        type: 'error',
+        text: `Order ID "${orderId.trim()}" is already logged under Return ID "${existingRecordForOrder.returnEntryId}". Please click "Fetch & Modify Record" or "Delete Record".`
+      });
       return;
     }
 
     if (!selectedMasterSku) {
-      alert('Please search, select, or scan a valid SKU code.');
+      setStatusToast({
+        type: 'error',
+        text: 'Please search, select, or scan a valid SKU code.'
+      });
       setIsDropdownOpen(true);
       return;
     }
 
     if (!orderId.trim()) {
-      alert('Order ID is required. Please scan or type it.');
+      setStatusToast({
+        type: 'error',
+        text: 'Order ID is required. Please scan or type it.'
+      });
       return;
     }
 
     if (!returnId.trim()) {
-      alert('Marketplace Return ID is required. Please scan or type it.');
+      setStatusToast({
+        type: 'error',
+        text: 'Marketplace Return ID is required. Please scan or type it.'
+      });
       return;
     }
 
@@ -570,7 +588,7 @@ export const ReturnsForm: React.FC<ReturnsFormProps> = ({
       }
 
       // 3. Sync to Google Sheets database as in-place row update (replaces existing line item)
-      StorageService.syncReturnToGas(updatedRecord, true);
+      await StorageService.syncReturnToGas(updatedRecord, true);
 
       playSaveChime();
       triggerHaptic();

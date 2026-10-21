@@ -372,61 +372,143 @@ export class StorageService {
     return await this.syncDeleteReturnToGas(returnEntryId, orderId, operator);
   }
 
-  // Background sync deletion to Google Apps Script Web App
-  static async syncDeleteReturnToGas(returnEntryId: string, orderId?: string, operator: string = 'Warehouse Operator'): Promise<{ success: boolean; message?: string }> {
+  // Universal Google Apps Script dispatcher
+  // Uses /api/gas-proxy on Node.js server first (no CORS, follows 302 redirects), falls back to direct fetch
+  static async sendGasRequest(options: {
+    action: string;
+    queryParams?: Record<string, any>;
+    payload?: any;
+    method?: 'GET' | 'POST';
+  }): Promise<{ success: boolean; data?: any; message?: string; error?: string }> {
     const rawGasUrl = this.getGasUrl();
-    if (!rawGasUrl || !rawGasUrl.trim()) return { success: true };
+    if (!rawGasUrl || !rawGasUrl.trim()) {
+      return { success: true, message: 'Saved locally (Google Apps Script Web App URL not configured).' };
+    }
     const gasUrl = rawGasUrl.trim();
-
     const token = this.getWarehousePasscode().trim();
     const sheetId = this.getSheetId().trim();
+
+    const mergedQueryParams = {
+      action: options.action,
+      token,
+      sheetId,
+      ...(options.queryParams || {})
+    };
+
+    const mergedPayload = {
+      action: options.action,
+      token,
+      sheetId,
+      ...(options.payload || {})
+    };
+
+    // 1. Attempt via Server Proxy (/api/gas-proxy)
+    try {
+      const proxyRes = await fetch('/api/gas-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gasUrl,
+          method: options.method || 'POST',
+          queryParams: mergedQueryParams,
+          payload: mergedPayload
+        })
+      });
+
+      if (proxyRes.ok) {
+        const result = await proxyRes.json();
+        if (result && typeof result === 'object') {
+          if (result.success !== false) {
+            return {
+              success: true,
+              data: result,
+              message: result.message || 'Operation processed successfully in Google Sheet.'
+            };
+          } else {
+            return {
+              success: false,
+              data: result,
+              error: result.error || 'Google Apps Script reported an error.'
+            };
+          }
+        }
+      }
+    } catch (proxyErr) {
+      console.warn('[Proxy Notice]: /api/gas-proxy unreachable, proceeding with client direct fallback', proxyErr);
+    }
+
+    // 2. Direct client fetch fallback
+    try {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(mergedQueryParams)) {
+        if (v !== undefined && v !== null) {
+          qs.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+        }
+      }
+      const directUrl = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}${qs.toString()}`;
+
+      if (options.method === 'GET') {
+        const getRes = await fetch(directUrl);
+        const getData = await getRes.json();
+        return { success: getData.success !== false, data: getData, message: getData.message, error: getData.error };
+      } else {
+        await fetch(directUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(mergedPayload),
+          mode: 'no-cors'
+        });
+        // Also call secondary GET to guarantee processing
+        try {
+          await fetch(directUrl, { method: 'GET', mode: 'no-cors' });
+        } catch {}
+        return { success: true, message: 'Request dispatched to Google Apps Script.' };
+      }
+    } catch (directErr: any) {
+      return { success: false, error: directErr?.message || 'Failed to dispatch request to Google Apps Script.' };
+    }
+  }
+
+  // Background sync deletion to Google Apps Script Web App
+  static async syncDeleteReturnToGas(returnEntryId: string, orderId?: string, operator: string = 'Warehouse Operator'): Promise<{ success: boolean; message?: string }> {
     const cleanRetId = (returnEntryId || '').trim();
     const cleanOrdId = (orderId || '').trim();
 
-    const params = new URLSearchParams({
+    const res = await this.sendGasRequest({
       action: 'deleteReturn',
-      token: token,
-      sheetId: sheetId,
-      returnId: cleanRetId,
-      orderId: cleanOrdId,
-      returnEntryId: cleanRetId,
-      originalOrderId: cleanOrdId,
-      user: operator
-    });
-    const urlWithParams = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}${params.toString()}`;
-
-    try {
-      // 1. Post request with text/plain (CORS safelisted) and JSON payload
-      await fetch(urlWithParams, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'deleteReturn',
-          token: token,
-          sheetId: sheetId,
+      queryParams: {
+        returnId: cleanRetId,
+        orderId: cleanOrdId,
+        returnEntryId: cleanRetId,
+        originalOrderId: cleanOrdId,
+        user: operator
+      },
+      payload: {
+        returnId: cleanRetId,
+        orderId: cleanOrdId,
+        returnEntryId: cleanRetId,
+        originalOrderId: cleanOrdId,
+        user: operator,
+        data: {
           returnId: cleanRetId,
           orderId: cleanOrdId,
           returnEntryId: cleanRetId,
-          originalOrderId: cleanOrdId,
-          user: operator,
-          data: {
-            returnId: cleanRetId,
-            orderId: cleanOrdId,
-            returnEntryId: cleanRetId,
-            originalOrderId: cleanOrdId
-          }
-        }),
-        mode: 'no-cors'
-      });
+          originalOrderId: cleanOrdId
+        }
+      },
+      method: 'POST'
+    });
 
-      // 2. Secondary GET fallback to ensure Google Apps Script catches the delete action
-      try {
-        await fetch(urlWithParams, { method: 'GET', mode: 'no-cors' });
-      } catch {}
-
-      return { success: true, message: 'Deleted cleanly from Google Sheets database.' };
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Failed to dispatch deletion to Google Sheets.' };
+    if (res.success) {
+      return {
+        success: true,
+        message: res.message || `✓ Permanently deleted record for Order "${cleanOrdId || cleanRetId}" from Google Sheets.`
+      };
+    } else {
+      return {
+        success: false,
+        message: res.error || 'Failed to delete record from Google Sheets.'
+      };
     }
   }
 
@@ -709,50 +791,40 @@ export class StorageService {
 
   // Push return to configured Google Apps Script Web App (handles both new entry and in-place modify)
   static async syncReturnToGas(returnRecord: ReturnRecord, isUpdate: boolean = false): Promise<{ success: boolean; message?: string }> {
-    const gasUrl = this.getGasUrl();
-    if (!gasUrl) {
-      return { success: true, message: 'Saved locally (GAS Web App URL not configured yet).' };
-    }
-
-    try {
-      const actionName = isUpdate ? 'updateReturn' : 'saveReturn';
-      const token = this.getWarehousePasscode();
-      const sheetId = this.getSheetId();
-
-      const queryParams = new URLSearchParams({
-        action: actionName,
-        token: token,
-        sheetId: sheetId,
+    const actionName = isUpdate ? 'updateReturn' : 'saveReturn';
+    const res = await this.sendGasRequest({
+      action: actionName,
+      queryParams: {
         user: returnRecord.createdBy || 'Warehouse Operator',
         returnId: returnRecord.returnEntryId,
         orderId: returnRecord.originalOrderId,
-        data: JSON.stringify(returnRecord)
-      });
-      const urlWithParams = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}${queryParams.toString()}`;
+        data: returnRecord
+      },
+      payload: {
+        action: actionName,
+        isUpdate: isUpdate,
+        user: returnRecord.createdBy || 'Warehouse Operator',
+        returnId: returnRecord.returnEntryId,
+        orderId: returnRecord.originalOrderId,
+        data: returnRecord
+      },
+      method: 'POST'
+    });
 
-      // 1. Send via POST (text/plain safelisted to avoid CORS preflight rejection)
-      await fetch(urlWithParams, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: actionName,
-          isUpdate: isUpdate,
-          token: token,
-          sheetId: sheetId,
-          user: returnRecord.createdBy,
-          data: returnRecord
-        }),
-        mode: 'no-cors' // Google Apps Script requires no-cors for direct cross-origin web app submissions
-      });
-
-      return { 
-        success: true, 
-        message: isUpdate 
-          ? `✓ Modified and replaced record "${returnRecord.returnEntryId}" in database.` 
-          : `✓ Saved new return "${returnRecord.returnEntryId}" to Google Sheets.` 
+    if (res.success) {
+      return {
+        success: true,
+        message: res.message || (isUpdate 
+          ? `✓ Modified and replaced record "${returnRecord.returnEntryId}" in Google Sheets.` 
+          : `✓ Saved new return "${returnRecord.returnEntryId}" to Google Sheets.`)
       };
-    } catch (e: any) {
-      return { success: false, message: e?.message || 'Failed to connect to Google Apps Script.' };
+    } else {
+      return {
+        success: false,
+        message: res.error || (isUpdate 
+          ? 'Failed to update record in Google Sheets. Please ensure your script is deployed.' 
+          : 'Failed to save record to Google Sheets.')
+      };
     }
   }
 
