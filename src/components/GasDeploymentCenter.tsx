@@ -86,7 +86,7 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
     StorageService.saveGasUrl(gasUrl);
     StorageService.saveSheetId(sheetId);
     StorageService.saveWarehousePasscode(passcode);
-    setConfigSavedToast('✓ Configuration & Security Passcode saved! The app is authorized to synchronize with "Warehouse Returns Master & P&L Ledger".');
+    setConfigSavedToast('✓ Configuration & Passcode saved! Web App URL is automatically embedded as the active portal endpoint across all warehouse stations.');
     setTimeout(() => setConfigSavedToast(null), 5000);
   };
 
@@ -102,26 +102,65 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
     setIsTesting(true);
     setTestResult(null);
 
+    const cleanUrl = gasUrl.trim();
+    const cleanToken = passcode.trim();
+    const cleanSheet = sheetId.trim();
+    const pingUrl = `${cleanUrl}${cleanUrl.includes('?') ? '&' : '?'}action=ping&token=${encodeURIComponent(cleanToken)}&sheetId=${encodeURIComponent(cleanSheet)}`;
+
     try {
-      const pingUrl = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=ping&token=${encodeURIComponent(passcode.trim())}&sheetId=${encodeURIComponent(sheetId.trim())}`;
-      const res = await fetch(pingUrl);
-      const data = await res.json();
+      // 1. Try server proxy first if running with backend
+      let data: any = null;
+      try {
+        const proxyRes = await fetch('/api/gas-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gasUrl: cleanUrl,
+            method: 'GET',
+            queryParams: { action: 'ping', token: cleanToken, sheetId: cleanSheet }
+          })
+        });
+        if (proxyRes.ok) {
+          data = await proxyRes.json();
+        }
+      } catch {}
+
+      // 2. Direct client fetch fallback (e.g. static GitHub Pages)
+      if (!data) {
+        const res = await fetch(pingUrl);
+        data = await res.json();
+      }
+
       if (data && data.status === 'ok') {
         setTestResult({
           success: true,
-          message: `Connected successfully to "Warehouse Returns Master & P&L Ledger" backend! Timestamp: ${data.timestamp}`
+          message: `✓ Connected successfully to "Warehouse Returns Master & P&L Ledger" backend! Timestamp: ${data.timestamp}`
+        });
+      } else if (data && data.error) {
+        setTestResult({
+          success: false,
+          message: `Endpoint responded: ${data.error}`
         });
       } else {
         setTestResult({
           success: true,
-          message: 'Received response from Apps Script Web App endpoint.'
+          message: '✓ Received response from Apps Script Web App endpoint.'
         });
       }
     } catch (e: any) {
-      setTestResult({
-        success: false,
-        message: `Connection note: ${e.message || 'If using direct browser sync, ensure your Web App deployment is configured with "Who has access: Anyone".'}`
-      });
+      // Diagnostic check via no-cors
+      try {
+        await fetch(pingUrl, { method: 'GET', mode: 'no-cors' });
+        setTestResult({
+          success: false,
+          message: `Connection note: Web App reached, but Google is redirecting to login ("Failed to fetch"). Fix: In Apps Script, open Deploy > Manage deployments > Edit (pencil) > set "Who has access" to "Anyone" (no code changes in Code.gs needed!). Your Google Sheet remains 100% private to you.`
+        });
+      } catch {
+        setTestResult({
+          success: false,
+          message: `Connection note: Failed to fetch. In Google Apps Script, ensure your Web App deployment is configured with "Who has access: Anyone". If set to "Only myself", browsers on tabbymart.com are blocked by Google.`
+        });
+      }
     } finally {
       setIsTesting(false);
     }

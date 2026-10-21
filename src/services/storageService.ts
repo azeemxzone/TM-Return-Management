@@ -19,7 +19,7 @@ const KEYS = {
 // Pre-configured for TABBYMART's "Warehouse Returns Master & P&L Ledger"
 export const DEFAULT_EMBEDDED_GAS_URL = 
   (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GAS_URL) || 
-  'https://script.google.com/macros/s/AKfycbz_tabbymart_returns_master/exec';
+  'https://script.google.com/macros/s/AKfycbzE4_JnfY5jpz4QnuXY5p2ZDy7SwUpezjouJXNkN2aZmfslYu_IcVAHNd5CggUZNf-7/exec';
 
 export const STATION_PRESETS = [
   { id: 'Station 1 - Receiving & Unboxing', label: 'Station 1 - Receiving & Unboxing' },
@@ -297,6 +297,11 @@ export class StorageService {
 
   static getGasUrl(): string {
     const custom = localStorage.getItem(KEYS.GAS_URL);
+    // If the browser still has the old dummy placeholder stored, migrate immediately to the user's real embedded URL
+    if (custom && custom.includes('AKfycbz_tabbymart_returns_master')) {
+      localStorage.setItem(KEYS.GAS_URL, DEFAULT_EMBEDDED_GAS_URL);
+      return DEFAULT_EMBEDDED_GAS_URL;
+    }
     if (custom && custom.trim()) {
       return custom.trim();
     }
@@ -308,12 +313,13 @@ export class StorageService {
   }
 
   static isUsingEmbeddedGasUrl(): boolean {
+    const current = this.getGasUrl();
     const custom = localStorage.getItem(KEYS.GAS_URL);
-    return !custom || !custom.trim();
+    return !custom || !custom.trim() || custom.trim() === DEFAULT_EMBEDDED_GAS_URL || current === DEFAULT_EMBEDDED_GAS_URL;
   }
 
   static saveGasUrl(url: string): void {
-    if (!url || !url.trim()) {
+    if (!url || !url.trim() || url.trim() === DEFAULT_EMBEDDED_GAS_URL) {
       localStorage.removeItem(KEYS.GAS_URL);
     } else {
       localStorage.setItem(KEYS.GAS_URL, url.trim());
@@ -820,9 +826,30 @@ export class StorageService {
     try {
       const token = this.getWarehousePasscode();
       const sheetId = this.getSheetId();
-      const url = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=getSkuCatalog&token=${encodeURIComponent(token)}&sheetId=${encodeURIComponent(sheetId)}`;
-      const res = await fetch(url);
-      const data = await res.json();
+
+      // 1. Try server proxy first if running with backend
+      let data: any = null;
+      try {
+        const proxyRes = await fetch('/api/gas-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gasUrl,
+            method: 'GET',
+            queryParams: { action: 'getSkuCatalog', token, sheetId }
+          })
+        });
+        if (proxyRes.ok) {
+          data = await proxyRes.json();
+        }
+      } catch {}
+
+      // 2. Direct client fetch fallback (e.g. static GitHub Pages)
+      if (!data) {
+        const url = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=getSkuCatalog&token=${encodeURIComponent(token)}&sheetId=${encodeURIComponent(sheetId)}`;
+        const res = await fetch(url);
+        data = await res.json();
+      }
 
       if (data && data.masterList && data.masterList.length > 0) {
         this.saveSkuMaster(data.masterList);
@@ -846,9 +873,12 @@ export class StorageService {
         };
       }
     } catch (e: any) {
+      const isFetchFail = String(e?.message || '').includes('Failed to fetch');
       return {
         success: false,
-        message: `Failed to fetch SKUs: ${e.message || 'CORS or Web App access restricted. Ensure Web App deployment is set to "Anyone".'}`
+        message: isFetchFail
+          ? 'Google Apps Script blocked cross-origin access ("Failed to fetch"). In Apps Script, click Deploy > Manage deployments > Edit > set "Who has access" to "Anyone" (no Code.gs changes needed!). Your Google Sheet remains 100% private to you.'
+          : `Failed to fetch SKUs: ${e?.message || 'Check Web App connection.'}`
       };
     }
   }
@@ -868,9 +898,30 @@ export class StorageService {
     try {
       const token = this.getWarehousePasscode();
       const sheetId = this.getSheetId();
-      const url = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=getReturns&token=${encodeURIComponent(token)}&sheetId=${encodeURIComponent(sheetId)}`;
-      const res = await fetch(url);
-      const data = await res.json();
+
+      // 1. Try server proxy first if running with backend
+      let data: any = null;
+      try {
+        const proxyRes = await fetch('/api/gas-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gasUrl,
+            method: 'GET',
+            queryParams: { action: 'getReturns', token, sheetId }
+          })
+        });
+        if (proxyRes.ok) {
+          data = await proxyRes.json();
+        }
+      } catch {}
+
+      // 2. Direct client fetch fallback
+      if (!data) {
+        const url = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=getReturns&token=${encodeURIComponent(token)}&sheetId=${encodeURIComponent(sheetId)}`;
+        const res = await fetch(url);
+        data = await res.json();
+      }
 
       let list: ReturnRecord[] = [];
       if (Array.isArray(data)) {
@@ -896,9 +947,12 @@ export class StorageService {
         message: 'Connected to Google Sheet, no existing return rows found.'
       };
     } catch (e: any) {
+      const isFetchFail = String(e?.message || '').includes('Failed to fetch');
       return {
         success: false,
-        message: `Failed to fetch returns: ${e.message || 'Could not connect to Web App'}`
+        message: isFetchFail
+          ? 'Google Apps Script blocked cross-origin access ("Failed to fetch"). In Apps Script, click Deploy > Manage deployments > Edit > set "Who has access" to "Anyone" (no Code.gs changes needed!). Your Google Sheet remains 100% private to you.'
+          : `Failed to fetch returns: ${e?.message || 'Could not connect to Web App'}`
       };
     }
   }
@@ -1077,9 +1131,30 @@ export class StorageService {
     const url = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}action=ping&token=${encodeURIComponent(token)}&sheetId=${encodeURIComponent(sheetId)}`;
 
     try {
-      const res = await fetch(url);
+      // 1. Try server proxy if available
+      let data: any = null;
+      try {
+        const proxyRes = await fetch('/api/gas-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gasUrl,
+            method: 'GET',
+            queryParams: { action: 'ping', token, sheetId }
+          })
+        });
+        if (proxyRes.ok) {
+          data = await proxyRes.json();
+        }
+      } catch {}
+
+      // 2. Direct client fetch fallback
+      if (!data) {
+        const res = await fetch(url);
+        data = await res.json();
+      }
+
       const latencyMs = Math.round(performance.now() - startTime);
-      const data = await res.json();
 
       if (data && data.status === 'ok') {
         return {
@@ -1105,37 +1180,46 @@ export class StorageService {
       };
     } catch (err: any) {
       const latencyMs = Math.round(performance.now() - startTime);
-      return {
-        success: false,
-        authorized: false,
-        latencyMs,
-        message: `Network or CORS error connecting to Web App (${err?.message || 'Failed to fetch'}). Verify that your Apps Script Web App deployment is set to "Who has access: Anyone".`
-      };
+      // Run diagnostic check via no-cors
+      try {
+        await fetch(url, { method: 'GET', mode: 'no-cors' });
+        return {
+          success: false,
+          authorized: false,
+          latencyMs,
+          message: 'Endpoint is live, but Google blocked direct cross-origin data reads ("Failed to fetch"). In Apps Script, open Deploy > Manage deployments > Edit > set "Who has access" to "Anyone" (no Code.gs changes needed!). Your Google Sheet remains 100% private to you.'
+        };
+      } catch {
+        return {
+          success: false,
+          authorized: false,
+          latencyMs,
+          message: `Connection note: Failed to fetch. In Google Apps Script, ensure your Web App deployment is configured with "Who has access: Anyone". If set to "Only myself", browsers on tabbymart.com are blocked by Google.`
+        };
+      }
     }
   }
 
   // Push claim to configured Google Apps Script Web App
   static async syncClaimToGas(claimRecord: ClaimRecord): Promise<{ success: boolean; message?: string }> {
-    const gasUrl = this.getGasUrl();
-    if (!gasUrl) {
-      return { success: true, message: 'Saved locally (GAS Web App URL not configured yet).' };
-    }
+    const res = await this.sendGasRequest({
+      action: 'saveClaim',
+      queryParams: {
+        user: claimRecord.createdBy || 'Claims Specialist',
+        data: claimRecord
+      },
+      payload: {
+        action: 'saveClaim',
+        user: claimRecord.createdBy || 'Claims Specialist',
+        data: claimRecord
+      },
+      method: 'POST'
+    });
 
-    try {
-      await fetch(gasUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'saveClaim',
-          token: this.getWarehousePasscode(),
-          user: claimRecord.createdBy,
-          data: claimRecord
-        }),
-        mode: 'no-cors'
-      });
-      return { success: true, message: 'Dispatched claim to Google Apps Script Web App.' };
-    } catch (e: any) {
-      return { success: false, message: e?.message || 'Failed to connect to Google Apps Script.' };
+    if (res.success) {
+      return { success: true, message: res.message || 'Dispatched claim to Google Apps Script Web App.' };
+    } else {
+      return { success: false, message: res.error || 'Failed to dispatch claim to Google Apps Script.' };
     }
   }
 
