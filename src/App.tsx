@@ -86,6 +86,64 @@ export default function App() {
     setActiveTab('claims_hub');
   };
 
+  // Automated Active Synchronization with Google Sheets backend
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('');
+
+  const syncFromGoogleSheets = async (silent: boolean = false) => {
+    const gasUrl = StorageService.getGasUrl();
+    if (!gasUrl) return;
+
+    if (!silent) setIsSyncing(true);
+    try {
+      // 1. Fetch live returns
+      const retRes = await StorageService.fetchReturnsFromGas();
+      if (retRes.success && retRes.returns && retRes.returns.length > 0) {
+        setReturns(retRes.returns);
+      }
+
+      // 2. Fetch live SKUs
+      const skuRes = await StorageService.fetchSkuCatalogFromGas();
+      if (skuRes.success && skuRes.skus && skuRes.skus.length > 0) {
+        setSkuMaster(skuRes.skus);
+        const updatedVariants = StorageService.getSkuVariants();
+        setSkuVariants(updatedVariants);
+      }
+
+      const now = new Date();
+      setLastSyncTime(
+        now.toLocaleTimeString('en-IN', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true
+        })
+      );
+    } catch (e) {
+      console.warn('Auto-sync notice:', e);
+    } finally {
+      if (!silent) setIsSyncing(false);
+    }
+  };
+
+  // Initial load and periodic active synchronization (every 45 seconds)
+  useEffect(() => {
+    const gasUrl = StorageService.getGasUrl();
+    if (gasUrl) {
+      syncFromGoogleSheets(true);
+    }
+
+    // Active continuous background poll every 45s
+    const interval = setInterval(() => {
+      const currentGas = StorageService.getGasUrl();
+      if (currentGas) {
+        syncFromGoogleSheets(true);
+      }
+    }, 45000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const openClaimsCount = claims.filter(
     (c) => c.claimStatus !== 'Recovered' && c.claimStatus !== 'Closed — No Recovery'
   ).length;
@@ -109,6 +167,9 @@ export default function App() {
         theme={theme}
         toggleTheme={toggleTheme}
         onOpenAuthorization={handleOpenAuthorization}
+        isSyncing={isSyncing}
+        lastSyncTime={lastSyncTime}
+        onManualSync={() => syncFromGoogleSheets(false)}
       />
 
       {/* Main Content Area */}

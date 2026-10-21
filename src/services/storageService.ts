@@ -379,12 +379,14 @@ export class StorageService {
     const gasUrl = rawGasUrl.trim();
 
     const token = this.getWarehousePasscode().trim();
+    const sheetId = this.getSheetId().trim();
     const cleanRetId = (returnEntryId || '').trim();
     const cleanOrdId = (orderId || '').trim();
 
     const params = new URLSearchParams({
       action: 'deleteReturn',
       token: token,
+      sheetId: sheetId,
       returnId: cleanRetId,
       orderId: cleanOrdId,
       returnEntryId: cleanRetId,
@@ -401,6 +403,7 @@ export class StorageService {
         body: JSON.stringify({
           action: 'deleteReturn',
           token: token,
+          sheetId: sheetId,
           returnId: cleanRetId,
           orderId: cleanOrdId,
           returnEntryId: cleanRetId,
@@ -509,7 +512,8 @@ export class StorageService {
 
     try {
       const token = this.getWarehousePasscode();
-      const url = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=getSkuCatalog&token=${encodeURIComponent(token)}`;
+      const sheetId = this.getSheetId();
+      const url = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=getSkuCatalog&token=${encodeURIComponent(token)}&sheetId=${encodeURIComponent(sheetId)}`;
       const res = await fetch(url);
       const data = await res.json();
 
@@ -538,6 +542,56 @@ export class StorageService {
       return {
         success: false,
         message: `Failed to fetch SKUs: ${e.message || 'CORS or Web App access restricted. Ensure Web App deployment is set to "Anyone".'}`
+      };
+    }
+  }
+
+  // Live Auto-fetch Returns from Google Apps Script Web App
+  static async fetchReturnsFromGas(): Promise<{
+    success: boolean;
+    count?: number;
+    returns?: ReturnRecord[];
+    message?: string;
+  }> {
+    const gasUrl = this.getGasUrl();
+    if (!gasUrl) {
+      return { success: false, message: 'Google Apps Script Web App URL is not set.' };
+    }
+
+    try {
+      const token = this.getWarehousePasscode();
+      const sheetId = this.getSheetId();
+      const url = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=getReturns&token=${encodeURIComponent(token)}&sheetId=${encodeURIComponent(sheetId)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+
+      let list: ReturnRecord[] = [];
+      if (Array.isArray(data)) {
+        list = data;
+      } else if (data && Array.isArray(data.returns)) {
+        list = data.returns;
+      }
+
+      if (list && list.length > 0) {
+        this.saveReturns(list);
+        return {
+          success: true,
+          count: list.length,
+          returns: list,
+          message: `Successfully synchronized ${list.length} returns from Google Sheet "Return_Log"!`
+        };
+      }
+
+      return {
+        success: true,
+        count: 0,
+        returns: [],
+        message: 'Connected to Google Sheet, no existing return rows found.'
+      };
+    } catch (e: any) {
+      return {
+        success: false,
+        message: `Failed to fetch returns: ${e.message || 'Could not connect to Web App'}`
       };
     }
   }
@@ -663,16 +717,20 @@ export class StorageService {
     try {
       const actionName = isUpdate ? 'updateReturn' : 'saveReturn';
       const token = this.getWarehousePasscode();
+      const sheetId = this.getSheetId();
 
       const queryParams = new URLSearchParams({
         action: actionName,
         token: token,
+        sheetId: sheetId,
         user: returnRecord.createdBy || 'Warehouse Operator',
         returnId: returnRecord.returnEntryId,
-        orderId: returnRecord.originalOrderId
+        orderId: returnRecord.originalOrderId,
+        data: JSON.stringify(returnRecord)
       });
       const urlWithParams = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}${queryParams.toString()}`;
 
+      // 1. Send via POST (text/plain safelisted to avoid CORS preflight rejection)
       await fetch(urlWithParams, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -680,6 +738,7 @@ export class StorageService {
           action: actionName,
           isUpdate: isUpdate,
           token: token,
+          sheetId: sheetId,
           user: returnRecord.createdBy,
           data: returnRecord
         }),
@@ -717,7 +776,8 @@ export class StorageService {
 
     const startTime = performance.now();
     const token = this.getWarehousePasscode();
-    const url = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}action=ping&token=${encodeURIComponent(token)}`;
+    const sheetId = this.getSheetId();
+    const url = `${gasUrl}${gasUrl.includes('?') ? '&' : '?'}action=ping&token=${encodeURIComponent(token)}&sheetId=${encodeURIComponent(sheetId)}`;
 
     try {
       const res = await fetch(url);

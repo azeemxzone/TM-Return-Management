@@ -1216,17 +1216,6 @@ export const ReturnsForm: React.FC<ReturnsFormProps> = ({
                     required
                     value={orderId}
                     onChange={(e) => setOrderId(e.target.value)}
-                    onBlur={() => {
-                      if (existingRecordForOrder && !editingReturnId) {
-                        handleLoadExistingToModify(existingRecordForOrder);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && existingRecordForOrder && !editingReturnId) {
-                        e.preventDefault();
-                        handleLoadExistingToModify(existingRecordForOrder);
-                      }
-                    }}
                     placeholder="e.g. 402-1928312-991283"
                     className={`w-full rounded-xl pl-3.5 pr-24 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 border ${
                       isLight

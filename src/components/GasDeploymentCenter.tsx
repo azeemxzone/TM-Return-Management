@@ -22,7 +22,7 @@ import {
   XCircle
 } from 'lucide-react';
 
-export type GasSubTab = 'ledger_guide' | 'operator_guide' | 'code_gs' | 'sheet_headers' | 'troubleshooting' | 'auth_mechanism';
+export type GasSubTab = 'ledger_guide' | 'operator_guide' | 'code_gs' | 'sheet_headers' | 'troubleshooting' | 'auth_mechanism' | 'domain_deployment';
 
 interface GasDeploymentCenterProps {
   theme?: ThemeMode;
@@ -81,7 +81,7 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
     setTestResult(null);
 
     try {
-      const pingUrl = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=ping&token=${encodeURIComponent(passcode.trim())}`;
+      const pingUrl = `${gasUrl.trim()}${gasUrl.includes('?') ? '&' : '?'}action=ping&token=${encodeURIComponent(passcode.trim())}&sheetId=${encodeURIComponent(sheetId.trim())}`;
       const res = await fetch(pingUrl);
       const data = await res.json();
       if (data && data.status === 'ok') {
@@ -153,14 +153,14 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
     try {
       const res = await StorageService.syncReturnToGas(testReturn);
       setTestRowResult({
-        success: true,
-        message: `Test return sent successfully! Check your "Return_Log" tab in Google Sheets.`,
+        success: res.success,
+        message: res.message || 'Row written to Google Sheet.',
         returnId: testReturn.returnEntryId
       });
-    } catch (e: any) {
+    } catch (err: any) {
       setTestRowResult({
         success: false,
-        message: `Failed to write test row: ${e.message || 'Check Web App deployment.'}`
+        message: err?.message || 'Failed to dispatch test row.'
       });
     } finally {
       setIsSendingTestRow(false);
@@ -420,7 +420,8 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
           { id: 'sheet_headers', label: '3. Exact Sheets Tab Headers' },
           { id: 'code_gs', label: '4. Backend Code.gs File' },
           { id: 'troubleshooting', label: '5. Troubleshooting & Permissions' },
-          { id: 'auth_mechanism', label: '6. 🔑 Authorization Mechanism & Links' }
+          { id: 'auth_mechanism', label: '6. 🔑 Authorization Mechanism & Links' },
+          { id: 'domain_deployment', label: '7. 🌐 Deploy to www.tabbymart.com' }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -1048,6 +1049,144 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
               <li>Select your Google Account, click <strong>Advanced</strong> at the bottom, and click <strong>Go to TABBYMART Returns (unsafe)</strong>.</li>
               <li>Click <strong>Allow</strong>. Your Google Apps Script backend is now fully authorized to modify and delete rows in your spreadsheet!</li>
             </ol>
+          </div>
+        </div>
+      )}
+
+      {/* Sub-Tab 7: Deploying to www.tabbymart.com & Google Sheet Protection */}
+      {activeSubTab === 'domain_deployment' && (
+        <div
+          className={`rounded-3xl p-6 sm:p-8 space-y-6 text-xs leading-relaxed border ${
+            isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'
+          }`}
+        >
+          {/* Header */}
+          <div className="border-b border-slate-200 dark:border-slate-800 pb-4">
+            <span className="text-amber-500 font-extrabold uppercase tracking-wider text-[11px] block mb-1">
+              Custom Domain &amp; Security Guide
+            </span>
+            <h3 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+              <span>🌐 Deploying TABBYMART to www.tabbymart.com</span>
+            </h3>
+            <p className="text-slate-500 text-xs mt-1">
+              Complete guide to pointing your custom domain, building the production bundle, and restricting your Google Sheet safely.
+            </p>
+          </div>
+
+          {/* Section A: How to Restrict & Protect Google Sheet (1-Layer Security) */}
+          <div className={`p-5 rounded-2xl border space-y-3 ${isLight ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-950' : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-200'}`}>
+            <h4 className="font-extrabold text-sm text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+              <span>1. How to Protect Your Google Sheet (1-Layer Security)</span>
+            </h4>
+            <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+              You do <strong>NOT</strong> need to make your Google Sheet public. In fact, you should keep the sheet <strong>100% Restricted</strong>:
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              <div className={`p-3.5 rounded-xl border ${isLight ? 'bg-white border-emerald-200' : 'bg-slate-950 border-emerald-900/40'}`}>
+                <div className="font-bold text-xs text-slate-900 dark:text-white mb-1">Step 1: Keep Google Sheet Private</div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                  In Google Drive, right-click &ldquo;Warehouse Returns Master &amp; P&amp;L Ledger&rdquo; &gt; <strong>Share</strong>. Under General access, ensure it is set to <strong>&ldquo;Restricted &mdash; Only people with access can open with the link&rdquo;</strong>.
+                </p>
+              </div>
+              <div className={`p-3.5 rounded-xl border ${isLight ? 'bg-white border-emerald-200' : 'bg-slate-950 border-emerald-900/40'}`}>
+                <div className="font-bold text-xs text-slate-900 dark:text-white mb-1">Step 2: Deploy Script as &ldquo;Execute as Me&rdquo;</div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                  In Apps Script, set <strong>Execute as: Me</strong> and <strong>Who has access: Anyone</strong>. The script accesses your private sheet on your behalf, and validates the 1-layer Passcode (<code className="font-mono text-amber-600 font-bold">{passcode || 'TBM-PASS-2026'}</code>) before executing any action.
+                </p>
+              </div>
+            </div>
+            <div className="text-[11px] text-emerald-900 dark:text-emerald-300 font-medium bg-emerald-500/15 p-2.5 rounded-xl">
+              ✓ <strong>Result:</strong> Zero unauthorized public access. The sheet is invisible on Google Drive to outsiders, while your return management portal at <code className="font-mono font-bold">www.tabbymart.com</code> synchronizes seamlessly using your station passcode.
+            </div>
+          </div>
+
+          {/* Section B: How to Deploy to www.tabbymart.com */}
+          <div className="space-y-4">
+            <h4 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+              <Layers className="w-4 h-4 text-amber-500" />
+              <span>2. Step-by-Step Custom Domain Deployment (www.tabbymart.com)</span>
+            </h4>
+
+            {/* Method 1: Vercel / Cloudflare Pages / Netlify */}
+            <div className={`p-4 rounded-2xl border space-y-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-amber-700 dark:text-amber-400 text-sm">
+                  Recommended Method: Deploy via Vercel or Cloudflare Pages (Free &amp; 2 Minutes)
+                </span>
+                <span className="text-[10px] bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold px-2 py-0.5 rounded">
+                  Fastest &amp; Auto-SSL
+                </span>
+              </div>
+              <ol className="list-decimal list-inside space-y-2 text-[11px] text-slate-600 dark:text-slate-300">
+                <li>
+                  <strong>Connect GitHub Repository:</strong> Go to <a href="https://vercel.com" target="_blank" rel="noreferrer" className="text-amber-600 underline font-bold">vercel.com</a> or <a href="https://pages.cloudflare.com" target="_blank" rel="noreferrer" className="text-amber-600 underline font-bold">Cloudflare Pages</a> and click <em>Add New &gt; Project &gt; Import <code className="font-mono">azeemxzone/TM-Return-Management</code></em>.
+                </li>
+                <li>
+                  <strong>Build Settings:</strong>
+                  <div className="mt-1 font-mono text-[11px] bg-slate-900 text-slate-200 p-2 rounded-lg">
+                    Build Command: npm run build<br />
+                    Output Directory: dist<br />
+                    Install Command: npm install
+                  </div>
+                </li>
+                <li>
+                  <strong>Add Your Custom Domain:</strong>
+                  In Vercel project settings &gt; <em>Domains</em>, enter: <code className="font-mono font-bold text-amber-600">www.tabbymart.com</code>.
+                </li>
+                <li>
+                  <strong>Set DNS CNAME at Your Domain Registrar (GoDaddy / Namecheap / Hostinger / Cloudflare):</strong>
+                  <div className="mt-1 overflow-x-auto">
+                    <table className="w-full text-left font-mono text-[11px] border border-slate-700 rounded-lg">
+                      <thead className="bg-slate-800 text-slate-300">
+                        <tr>
+                          <th className="p-2">Type</th>
+                          <th className="p-2">Name / Host</th>
+                          <th className="p-2">Value / Target</th>
+                          <th className="p-2">TTL</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-slate-950 text-slate-200">
+                        <tr className="border-t border-slate-800">
+                          <td className="p-2 text-emerald-400 font-bold">CNAME</td>
+                          <td className="p-2 font-bold">www</td>
+                          <td className="p-2 text-amber-400">cname.vercel-dns.com</td>
+                          <td className="p-2">Automatic / 3600</td>
+                        </tr>
+                        <tr className="border-t border-slate-800">
+                          <td className="p-2 text-emerald-400 font-bold">A</td>
+                          <td className="p-2 font-bold">@</td>
+                          <td className="p-2 text-amber-400">76.76.21.21</td>
+                          <td className="p-2">Automatic / 3600</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </li>
+              </ol>
+            </div>
+
+            {/* Method 2: Traditional cPanel / Hostinger / Apache / Nginx */}
+            <div className={`p-4 rounded-2xl border space-y-3 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
+              <div className="font-bold text-slate-900 dark:text-white text-sm">
+                Alternative Method: Upload to cPanel / Apache / Nginx Hosting
+              </div>
+              <ol className="list-decimal list-inside space-y-2 text-[11px] text-slate-600 dark:text-slate-300">
+                <li>Run <code className="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">npm run build</code> to generate the compiled <code className="font-mono">dist/</code> folder.</li>
+                <li>Upload the entire contents of the <code className="font-mono">dist/</code> folder to your hosting server's <code className="font-mono">public_html/</code> directory for <code className="font-mono">www.tabbymart.com</code>.</li>
+                <li>
+                  Create an <code className="font-mono font-bold">.htaccess</code> file inside <code className="font-mono">public_html/</code> to ensure all single-page routes load cleanly:
+                  <div className="mt-1 font-mono text-[11px] bg-slate-900 text-slate-200 p-2.5 rounded-lg">
+                    RewriteEngine On<br />
+                    RewriteBase /<br />
+                    RewriteRule ^index\.html$ - [L]<br />
+                    RewriteCond %{"{"}REQUEST_FILENAME{"}"} !-f<br />
+                    RewriteCond %{"{"}REQUEST_FILENAME{"}"} !-d<br />
+                    RewriteRule . /index.html [L]
+                  </div>
+                </li>
+              </ol>
+            </div>
           </div>
         </div>
       )}

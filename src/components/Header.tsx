@@ -13,7 +13,8 @@ import {
   Download,
   Sun,
   Moon,
-  Key
+  Key,
+  RefreshCw
 } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
@@ -27,6 +28,9 @@ interface HeaderProps {
   theme: ThemeMode;
   toggleTheme: () => void;
   onOpenAuthorization?: () => void;
+  isSyncing?: boolean;
+  lastSyncTime?: string;
+  onManualSync?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -38,7 +42,10 @@ export const Header: React.FC<HeaderProps> = ({
   openClaimsCount,
   theme,
   toggleTheme,
-  onOpenAuthorization
+  onOpenAuthorization,
+  isSyncing = false,
+  lastSyncTime = '',
+  onManualSync
 }) => {
   const [time, setTime] = useState<string>('');
   const [hasGasUrl, setHasGasUrl] = useState<boolean>(false);
@@ -128,10 +135,23 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <span className={isLight ? 'text-slate-300' : 'text-slate-700'}>|</span>
           <div className="flex items-center gap-1.5">
-            <Wifi className={`w-3.5 h-3.5 ${hasGasUrl ? 'text-emerald-500' : 'text-amber-500'}`} />
-            <span>
-              {hasGasUrl ? 'Google Sheets Sync Active' : 'Connected to "Warehouse Returns Master & P&L Ledger"'}
+            <Wifi className={`w-3.5 h-3.5 ${hasGasUrl ? 'text-emerald-500' : 'text-amber-500'} ${isSyncing ? 'animate-pulse' : ''}`} />
+            <span className="font-medium">
+              {hasGasUrl
+                ? (isSyncing ? 'Syncing with Google Sheets...' : (lastSyncTime ? `Live Google Sheet Active (${lastSyncTime})` : 'Google Sheets Sync Active'))
+                : 'Connected to "Warehouse Returns Master & P&L Ledger"'}
             </span>
+            {hasGasUrl && onManualSync && (
+              <button
+                type="button"
+                onClick={onManualSync}
+                disabled={isSyncing}
+                title="Refresh latest data from Google Sheets"
+                className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 transition cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-amber-500' : ''}`} />
+              </button>
+            )}
           </div>
           {onOpenAuthorization && (
             <>

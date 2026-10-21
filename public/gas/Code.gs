@@ -23,6 +23,7 @@
 // If using standalone Apps Script, paste the Spreadsheet ID between the quotes:
 var SPREADSHEET_ID = ''; 
 var DATABASE_SPREADSHEET_NAME = "Warehouse Returns Master & P&L Ledger"; 
+var currentRequestSheetId = '';
 
 // Simple Secret Passcode Protection for the Web App (Prevents unauthorized public access)
 var WAREHOUSE_SECURITY_TOKEN = 'TBM-PASS-2026';
@@ -152,6 +153,8 @@ var HEADERS = {
 function doGet(e) {
   var action = (e && e.parameter && e.parameter.action) ? e.parameter.action : '';
   var clientToken = (e && e.parameter && (e.parameter.token || e.parameter.passcode || e.parameter.apiKey)) ? (e.parameter.token || e.parameter.passcode || e.parameter.apiKey) : '';
+  var clientSheetId = (e && e.parameter && (e.parameter.sheetId || e.parameter.spreadsheetId)) ? (e.parameter.sheetId || e.parameter.spreadsheetId) : '';
+  if (clientSheetId) currentRequestSheetId = clientSheetId;
 
   // If an API action is requested, require valid security passcode
   if (action) {
@@ -226,12 +229,17 @@ function doPost(e) {
     if (e && e.parameter) {
       if (!payload.action && e.parameter.action) payload.action = e.parameter.action;
       if (!payload.token && (e.parameter.token || e.parameter.passcode)) payload.token = e.parameter.token || e.parameter.passcode;
+      if (!payload.sheetId && (e.parameter.sheetId || e.parameter.spreadsheetId)) payload.sheetId = e.parameter.sheetId || e.parameter.spreadsheetId;
       if (!payload.returnId && (e.parameter.returnId || e.parameter.returnEntryId)) payload.returnId = e.parameter.returnId || e.parameter.returnEntryId;
       if (!payload.orderId && (e.parameter.orderId || e.parameter.originalOrderId)) payload.orderId = e.parameter.orderId || e.parameter.originalOrderId;
       if (!payload.user && e.parameter.user) payload.user = e.parameter.user;
       if (!payload.data && e.parameter.data) {
         try { payload.data = JSON.parse(e.parameter.data); } catch(ex) { payload.data = e.parameter; }
       }
+    }
+
+    if (payload.sheetId || payload.spreadsheetId) {
+      currentRequestSheetId = String(payload.sheetId || payload.spreadsheetId).trim();
     }
 
     // Security Passcode check for POST requests
@@ -302,11 +310,21 @@ function createJsonResponse(data) {
 // DATABASE ACCESS HELPERS
 // ==========================================
 
-function getSpreadsheet() {
-  if (SPREADSHEET_ID && SPREADSHEET_ID.trim() !== '') {
-    return SpreadsheetApp.openById(SPREADSHEET_ID.trim());
+function getSpreadsheet(optSheetId) {
+  var id = optSheetId || currentRequestSheetId || (SPREADSHEET_ID && SPREADSHEET_ID.trim() !== '' ? SPREADSHEET_ID.trim() : '');
+  if (id && id.trim() !== '') {
+    try {
+      return SpreadsheetApp.openById(id.trim());
+    } catch (err) {
+      Logger.log('Could not open spreadsheet by ID (' + id + '): ' + err.toString());
+    }
   }
-  return SpreadsheetApp.getActiveSpreadsheet();
+  try {
+    return SpreadsheetApp.getActiveSpreadsheet();
+  } catch (err) {
+    Logger.log('Could not open active spreadsheet: ' + err.toString());
+    return null;
+  }
 }
 
 function getOrCreateSheet(sheetName, defaultHeaders) {
@@ -838,32 +856,46 @@ function saveReturnRecord(data, operator) {
       returnEntryId = String(targetSheet.getRange(primaryRow, 1).getValue() || '').trim();
     }
 
-    targetSheet.getRange(primaryRow, 4).setValue(normalTimestamp); // Last Updated At
-    targetSheet.getRange(primaryRow, 5).setValue(data.marketplace || 'Meesho');
-    targetSheet.getRange(primaryRow, 6).setValue(data.returnType || 'Customer Return');
-    if (data.receiptDate) targetSheet.getRange(primaryRow, 7).setValue(data.receiptDate);
-    if (data.originalOrderId) targetSheet.getRange(primaryRow, 8).setValue(data.originalOrderId);
-    if (data.marketplaceReturnId) targetSheet.getRange(primaryRow, 9).setValue(data.marketplaceReturnId);
-    if (data.awbTrackingNumber) targetSheet.getRange(primaryRow, 10).setValue(data.awbTrackingNumber);
-    if (data.scannedVariant) targetSheet.getRange(primaryRow, 11).setValue(data.scannedVariant);
-    if (data.masterSkuCode) targetSheet.getRange(primaryRow, 12).setValue(data.masterSkuCode);
-    if (data.productNameSnapshot) targetSheet.getRange(primaryRow, 13).setValue(data.productNameSnapshot);
-    targetSheet.getRange(primaryRow, 14).setValue(qty);
-    targetSheet.getRange(primaryRow, 15).setValue(unitWeight);
-    targetSheet.getRange(primaryRow, 16).setValue(totalWeight);
-    targetSheet.getRange(primaryRow, 17).setValue(measuredWeight);
-    targetSheet.getRange(primaryRow, 18).setValue(weightDiscrepancy);
-    targetSheet.getRange(primaryRow, 19).setValue(unitCost);
-    targetSheet.getRange(primaryRow, 20).setValue(totalInventoryVal);
-    targetSheet.getRange(primaryRow, 21).setValue(data.packageCondition || 'Intact / Undamaged');
-    targetSheet.getRange(primaryRow, 22).setValue(data.itemCondition || 'Sellable');
-    targetSheet.getRange(primaryRow, 23).setValue(data.inspectionStatus || (data.itemCondition === 'Sellable' ? 'Restock Approved' : 'Damaged / Write-off Review'));
-    targetSheet.getRange(primaryRow, 24).setValue(data.dispositionDecision || 'Restock to Active Inventory');
-    targetSheet.getRange(primaryRow, 25).setValue(data.damageDetails || '');
-    targetSheet.getRange(primaryRow, 26).setValue(data.warehouseNotes || '');
-    if (data.financialReviewStatus) targetSheet.getRange(primaryRow, 29).setValue(data.financialReviewStatus);
-    targetSheet.getRange(primaryRow, 30).setValue(isClaimEligible ? 'YES' : 'NO');
-    targetSheet.getRange(primaryRow, 31).setValue(dupKey);
+    var createdAt = String(targetSheet.getRange(primaryRow, 2).getValue() || normalTimestamp);
+    var createdBy = String(targetSheet.getRange(primaryRow, 3).getValue() || (data.createdBy || operator || 'Warehouse Operator'));
+    var photoLinks = String(targetSheet.getRange(primaryRow, 27).getValue() || (data.photoEvidenceLinks || ''));
+    var inspectionDate = String(targetSheet.getRange(primaryRow, 28).getValue() || (data.inspectionDate || ''));
+
+    var updatedRow = [
+      returnEntryId,
+      createdAt,
+      createdBy,
+      normalTimestamp,
+      data.marketplace || 'Meesho',
+      data.returnType || 'Customer Return',
+      data.receiptDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kolkata', 'yyyy-MM-dd'),
+      data.originalOrderId || '',
+      data.marketplaceReturnId || '',
+      data.awbTrackingNumber || '',
+      data.scannedVariant || '',
+      data.masterSkuCode || '',
+      data.productNameSnapshot || '',
+      qty,
+      unitWeight,
+      totalWeight,
+      measuredWeight,
+      weightDiscrepancy,
+      unitCost,
+      totalInventoryVal,
+      data.packageCondition || 'Intact / Undamaged',
+      data.itemCondition || 'Sellable',
+      data.inspectionStatus || (data.itemCondition === 'Sellable' ? 'Restock Approved' : 'Damaged / Write-off Review'),
+      data.dispositionDecision || 'Restock to Active Inventory',
+      data.damageDetails || '',
+      data.warehouseNotes || '',
+      data.photoEvidenceLinks || photoLinks,
+      data.inspectionDate || inspectionDate,
+      data.financialReviewStatus || (data.itemCondition === 'Sellable' ? 'Approved' : 'Pending Review'),
+      isClaimEligible ? 'YES' : 'NO',
+      dupKey
+    ];
+
+    targetSheet.getRange(primaryRow, 1, 1, updatedRow.length).setValues([updatedRow]);
 
     // If there were redundant duplicate rows created previously for this item, delete them so only 1 row exists
     if (matchingRows.length > 1) {
@@ -901,11 +933,13 @@ function saveReturnRecord(data, operator) {
     };
   }
 
-  // Generate unique ID: TBM-RET-YYYYMMDD-XXXX
-  var now = new Date();
-  var dateStr = Utilities.formatDate(now, Session.getScriptTimeZone() || 'Asia/Kolkata', 'yyyyMMdd');
-  var randomDigits = Math.floor(1000 + Math.random() * 9000);
-  returnEntryId = 'TBM-RET-' + dateStr + '-' + randomDigits;
+  // Use provided returnEntryId or generate unique ID: TBM-RET-YYYYMMDD-XXXX
+  if (!returnEntryId) {
+    var now = new Date();
+    var dateStr = Utilities.formatDate(now, Session.getScriptTimeZone() || 'Asia/Kolkata', 'yyyyMMdd');
+    var randomDigits = Math.floor(1000 + Math.random() * 9000);
+    returnEntryId = 'TBM-RET-' + dateStr + '-' + randomDigits;
+  }
 
   var row = [
     returnEntryId,
@@ -1159,28 +1193,32 @@ function logAudit(user, action, entityType, entityId, details) {
 
 function getReturns() {
   var ss = getSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAMES.RETURN_LOG);
+  if (!ss) return [];
+  var sheet = getReturnSheet(ss);
   var returns = [];
   if (!sheet || sheet.getLastRow() <= 1) return returns;
 
-  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.RETURN_LOG.length).getValues();
+  var lastCol = Math.min(sheet.getLastColumn(), HEADERS.RETURN_LOG.length);
+  if (lastCol < 1) return returns;
+
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
   for (var i = 0; i < data.length; i++) {
     var r = data[i];
-    if (!r[0]) continue;
+    if (!r[0] && !r[7]) continue;
     returns.push({
-      returnEntryId: String(r[0]),
-      createdAt: String(r[1]),
-      createdBy: String(r[2]),
-      lastUpdatedAt: String(r[3]),
-      marketplace: String(r[4]),
-      returnType: String(r[5]),
-      receiptDate: String(r[6]),
-      originalOrderId: String(r[7]),
-      marketplaceReturnId: String(r[8]),
-      awbTrackingNumber: String(r[9]),
-      scannedVariant: String(r[10]),
-      masterSkuCode: String(r[11]),
-      productNameSnapshot: String(r[12]),
+      returnEntryId: String(r[0] || ('TBM-RET-' + (i + 1))),
+      createdAt: String(r[1] || ''),
+      createdBy: String(r[2] || 'Warehouse Operator'),
+      lastUpdatedAt: String(r[3] || ''),
+      marketplace: String(r[4] || 'Meesho'),
+      returnType: String(r[5] || 'Customer Return'),
+      receiptDate: String(r[6] || ''),
+      originalOrderId: String(r[7] || ''),
+      marketplaceReturnId: String(r[8] || ''),
+      awbTrackingNumber: String(r[9] || ''),
+      scannedVariant: String(r[10] || ''),
+      masterSkuCode: String(r[11] || ''),
+      productNameSnapshot: String(r[12] || ''),
       quantityReceived: Number(r[13]) || 1,
       expectedUnitWeightGrams: Number(r[14]) || 0,
       expectedTotalWeightGrams: Number(r[15]) || 0,
@@ -1188,17 +1226,17 @@ function getReturns() {
       weightDiscrepancy: Number(r[17]) || 0,
       mfgFreightCost: Number(r[18]) || 0,
       totalInventoryValue: Number(r[19]) || 0,
-      packageCondition: String(r[20]),
-      itemCondition: String(r[21]),
-      inspectionStatus: String(r[22]),
-      dispositionDecision: String(r[23]),
-      damageDetails: String(r[24]),
-      warehouseNotes: String(r[25]),
-      photoEvidenceLinks: String(r[26]),
-      inspectionDate: String(r[27]),
-      financialReviewStatus: String(r[28]),
+      packageCondition: String(r[20] || 'Intact / Undamaged'),
+      itemCondition: String(r[21] || 'Sellable'),
+      inspectionStatus: String(r[22] || 'Restock Approved'),
+      dispositionDecision: String(r[23] || 'Restock to Active Inventory'),
+      damageDetails: String(r[24] || ''),
+      warehouseNotes: String(r[25] || ''),
+      photoEvidenceLinks: String(r[26] || ''),
+      inspectionDate: String(r[27] || ''),
+      financialReviewStatus: String(r[28] || 'Approved'),
       claimEligible: String(r[29]) === 'YES',
-      duplicateCheckKey: String(r[30])
+      duplicateCheckKey: String(r[30] || '')
     });
   }
   return returns;
