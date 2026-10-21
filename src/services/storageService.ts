@@ -1,4 +1,4 @@
-import { ReturnRecord, SkuMasterItem, SkuVariant, ClaimRecord, AuditLogItem } from '../types';
+import { ReturnRecord, SkuMasterItem, SkuVariant, ClaimRecord, AuditLogItem, AuthUser, UserRole } from '../types';
 import { INITIAL_SKU_MASTER, INITIAL_SKU_VARIANTS, INITIAL_RETURNS, INITIAL_CLAIMS, parseVariantsFromMaster } from '../data/initialData';
 
 const KEYS = {
@@ -10,7 +10,38 @@ const KEYS = {
   GAS_URL: 'tabbymart_gas_web_app_url',
   SHEET_ID: 'tabbymart_sheet_id',
   THEME: 'tabbymart_theme_mode',
-  PASSCODE: 'tabbymart_warehouse_passcode_v2'
+  PASSCODE: 'tabbymart_warehouse_passcode_v2',
+  AUTH_SESSION: 'tabbymart_auth_session_v2',
+  CUSTOM_CREDS: 'tabbymart_custom_creds_v2'
+};
+
+// Embedded default Google Apps Script Web App URL
+// Pre-configured for TABBYMART's "Warehouse Returns Master & P&L Ledger"
+export const DEFAULT_EMBEDDED_GAS_URL = 
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GAS_URL) || 
+  'https://script.google.com/macros/s/AKfycbz_tabbymart_returns_master/exec';
+
+export const STATION_PRESETS = [
+  { id: 'Station 1 - Receiving & Unboxing', label: 'Station 1 - Receiving & Unboxing' },
+  { id: 'Station 2 - Weighing & Inspection', label: 'Station 2 - Weighing & Inspection' },
+  { id: 'Station 3 - QC & Disposition', label: 'Station 3 - QC & Disposition' },
+  { id: 'Station 4 - RTO Courier Returns', label: 'Station 4 - RTO Courier Returns' },
+  { id: 'Station 5 - SPF & Claims Desk', label: 'Station 5 - SPF & Claims Desk' },
+  { id: 'Mobile Handheld Scanner Unit', label: 'Mobile Handheld Scanner Unit' },
+];
+
+export interface StoredCredentials {
+  adminPin: string;
+  adminPassword: string;
+  operatorPin: string;
+  operatorPassword: string;
+}
+
+export const DEFAULT_CREDENTIALS: StoredCredentials = {
+  adminPin: '8888',
+  adminPassword: 'tabbyadmin2026',
+  operatorPin: '1234',
+  operatorPassword: 'tabby123'
 };
 
 export type ThemeMode = 'light' | 'dark';
@@ -252,9 +283,9 @@ export class StorageService {
       if (mode === 'dark' || mode === 'light') {
         return mode;
       }
-      return 'light'; // Default mode is Light
+      return 'dark'; // Default mode is Dark
     } catch {
-      return 'light';
+      return 'dark';
     }
   }
 
@@ -265,11 +296,32 @@ export class StorageService {
   }
 
   static getGasUrl(): string {
+    const custom = localStorage.getItem(KEYS.GAS_URL);
+    if (custom && custom.trim()) {
+      return custom.trim();
+    }
+    return DEFAULT_EMBEDDED_GAS_URL;
+  }
+
+  static getCustomGasUrl(): string {
     return localStorage.getItem(KEYS.GAS_URL) || '';
   }
 
+  static isUsingEmbeddedGasUrl(): boolean {
+    const custom = localStorage.getItem(KEYS.GAS_URL);
+    return !custom || !custom.trim();
+  }
+
   static saveGasUrl(url: string): void {
-    localStorage.setItem(KEYS.GAS_URL, url.trim());
+    if (!url || !url.trim()) {
+      localStorage.removeItem(KEYS.GAS_URL);
+    } else {
+      localStorage.setItem(KEYS.GAS_URL, url.trim());
+    }
+  }
+
+  static resetToEmbeddedGasUrl(): void {
+    localStorage.removeItem(KEYS.GAS_URL);
   }
 
   static getSheetId(): string {
@@ -278,6 +330,179 @@ export class StorageService {
 
   static saveSheetId(id: string): void {
     localStorage.setItem(KEYS.SHEET_ID, id.trim());
+  }
+
+  // ============================================================
+  // AUTHENTICATION & ACCESS CONTROL SERVICE
+  // ============================================================
+
+  static getCredentials(): StoredCredentials {
+    try {
+      const raw = localStorage.getItem(KEYS.CUSTOM_CREDS);
+      if (!raw) return DEFAULT_CREDENTIALS;
+      return { ...DEFAULT_CREDENTIALS, ...JSON.parse(raw) };
+    } catch {
+      return DEFAULT_CREDENTIALS;
+    }
+  }
+
+  static saveCredentials(creds: Partial<StoredCredentials>): void {
+    const current = this.getCredentials();
+    const updated = { ...current, ...creds };
+    localStorage.setItem(KEYS.CUSTOM_CREDS, JSON.stringify(updated));
+  }
+
+  static getCurrentUser(): AuthUser | null {
+    try {
+      const raw = localStorage.getItem(KEYS.AUTH_SESSION);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  static setCurrentUser(user: AuthUser | null): void {
+    try {
+      if (user) {
+        localStorage.setItem(KEYS.AUTH_SESSION, JSON.stringify(user));
+        this.logAudit(
+          user.name || user.username,
+          'LOGIN',
+          'Auth_Session',
+          user.username,
+          `Logged into ${user.stationId} with role: ${user.role.toUpperCase()}`
+        );
+      } else {
+        const prev = this.getCurrentUser();
+        if (prev) {
+          this.logAudit(
+            prev.name || prev.username,
+            'LOGOUT',
+            'Auth_Session',
+            prev.username,
+            `Logged out from station: ${prev.stationId}`
+          );
+        }
+        localStorage.removeItem(KEYS.AUTH_SESSION);
+      }
+    } catch {}
+  }
+
+  static logout(): void {
+    this.setCurrentUser(null);
+  }
+
+  static isAuthenticated(): boolean {
+    return this.getCurrentUser() !== null;
+  }
+
+  static isAdmin(): boolean {
+    const user = this.getCurrentUser();
+    return user?.role === 'admin';
+  }
+
+  /**
+   * Authenticate floor staff quickly via 4-digit Station PIN
+   */
+  static authenticateWithPin(
+    pin: string,
+    stationId: string = 'Station 1 - Receiving & Unboxing',
+    customOperatorName?: string
+  ): { success: boolean; user?: AuthUser; message?: string } {
+    const cleanPin = (pin || '').trim();
+    if (!cleanPin) {
+      return { success: false, message: 'Please enter your Station PIN.' };
+    }
+
+    const creds = this.getCredentials();
+
+    // Check Admin PIN
+    if (cleanPin === creds.adminPin) {
+      const user: AuthUser = {
+        username: 'admin',
+        name: customOperatorName?.trim() || 'Admin Supervisor',
+        role: 'admin',
+        stationId,
+        loginTime: this.formatNormalTimestamp(new Date()),
+        rememberMe: true
+      };
+      this.setCurrentUser(user);
+      return { success: true, user, message: 'Welcome back, Administrator. Full system unlocked.' };
+    }
+
+    // Check Operator PIN
+    if (cleanPin === creds.operatorPin) {
+      const user: AuthUser = {
+        username: 'operator',
+        name: customOperatorName?.trim() || 'Zeeshan K',
+        role: 'operator',
+        stationId,
+        loginTime: this.formatNormalTimestamp(new Date()),
+        rememberMe: true
+      };
+      this.setCurrentUser(user);
+      return { success: true, user, message: `Station Authorized: Ready for returns receipt at ${stationId}.` };
+    }
+
+    return {
+      success: false,
+      message: 'Invalid Station PIN. Default Operator PIN is 1234 (Admin PIN is 8888).'
+    };
+  }
+
+  /**
+   * Authenticate via full Username & Password
+   */
+  static authenticateWithCredentials(
+    username: string,
+    pass: string,
+    stationId: string = 'Station 1 - Receiving & Unboxing',
+    customName?: string,
+    rememberMe: boolean = true
+  ): { success: boolean; user?: AuthUser; message?: string } {
+    const cleanUser = (username || '').trim().toLowerCase();
+    const cleanPass = (pass || '').trim();
+
+    if (!cleanUser || !cleanPass) {
+      return { success: false, message: 'Please enter both Username and Password.' };
+    }
+
+    const creds = this.getCredentials();
+
+    if (cleanUser === 'admin' && cleanPass === creds.adminPassword) {
+      const user: AuthUser = {
+        username: 'admin',
+        name: customName?.trim() || 'Administrator',
+        role: 'admin',
+        stationId,
+        loginTime: this.formatNormalTimestamp(new Date()),
+        rememberMe
+      };
+      this.setCurrentUser(user);
+      return { success: true, user, message: 'Administrator authenticated successfully.' };
+    }
+
+    if (
+      (cleanUser === 'operator' || cleanUser === 'staff' || cleanUser === 'tabby' || cleanUser === 'warehouse') &&
+      cleanPass === creds.operatorPassword
+    ) {
+      const user: AuthUser = {
+        username: cleanUser,
+        name: customName?.trim() || 'Zeeshan K',
+        role: 'operator',
+        stationId,
+        loginTime: this.formatNormalTimestamp(new Date()),
+        rememberMe
+      };
+      this.setCurrentUser(user);
+      return { success: true, user, message: `Operator authorized for ${stationId}.` };
+    }
+
+    return {
+      success: false,
+      message: 'Incorrect username or password. Check credentials or use Station PIN.'
+    };
   }
 
   // Lookup existing return by Order ID

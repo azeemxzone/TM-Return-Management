@@ -138,3 +138,14 @@ export interface AuditLogItem {
 export type ActiveTab = 'receipt' | 'returns_log' | 'claims_hub' | 'sku_master' | 'analytics' | 'gas_deployment';
 
 export type ThemeMode = 'light' | 'dark';
+
+export type UserRole = 'admin' | 'operator';
+
+export interface AuthUser {
+  username: string;
+  name: string;
+  role: UserRole;
+  stationId: string;
+  loginTime: string;
+  rememberMe?: boolean;
+}

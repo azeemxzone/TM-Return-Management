@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ActiveTab, ThemeMode } from '../types';
+import { ActiveTab, ThemeMode, AuthUser } from '../types';
 import { 
   PackageCheck, 
   Layers, 
@@ -14,7 +14,10 @@ import {
   Sun,
   Moon,
   Key,
-  RefreshCw
+  RefreshCw,
+  LogOut,
+  ShieldCheck,
+  ShieldAlert as ShieldAlertIcon
 } from 'lucide-react';
 import { StorageService } from '../services/storageService';
 
@@ -31,6 +34,9 @@ interface HeaderProps {
   isSyncing?: boolean;
   lastSyncTime?: string;
   onManualSync?: () => void;
+  currentUser?: AuthUser | null;
+  onLogout?: () => void;
+  onPromoteToAdmin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -45,7 +51,10 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuthorization,
   isSyncing = false,
   lastSyncTime = '',
-  onManualSync
+  onManualSync,
+  currentUser,
+  onLogout,
+  onPromoteToAdmin
 }) => {
   const [time, setTime] = useState<string>('');
   const [hasGasUrl, setHasGasUrl] = useState<boolean>(false);
@@ -71,44 +80,56 @@ export const Header: React.FC<HeaderProps> = ({
     return () => clearInterval(interval);
   }, [activeTab]);
 
-  const navItems = [
+  const isAdmin = currentUser?.role === 'admin';
+
+  // Standard nav items available to operators
+  const allNavItems = [
     {
       id: 'receipt' as ActiveTab,
       label: 'Fast Receipt',
       icon: PackageCheck,
-      badge: null
+      badge: null,
+      adminOnly: false
     },
     {
       id: 'returns_log' as ActiveTab,
       label: 'Returns Queue',
       icon: Layers,
-      badge: returnsCount > 0 ? returnsCount : null
+      badge: returnsCount > 0 ? returnsCount : null,
+      adminOnly: false
     },
     {
       id: 'claims_hub' as ActiveTab,
       label: 'SPF & T-Safe Claims',
       icon: ShieldAlert,
-      badge: openClaimsCount > 0 ? openClaimsCount : null
+      badge: openClaimsCount > 0 ? openClaimsCount : null,
+      adminOnly: false
     },
     {
       id: 'sku_master' as ActiveTab,
       label: 'SKU & Variants Master',
       icon: Database,
-      badge: null
+      badge: null,
+      adminOnly: false
     },
     {
       id: 'analytics' as ActiveTab,
       label: 'Analytics & KPIs',
       icon: BarChart3,
-      badge: null
+      badge: null,
+      adminOnly: false
     },
     {
       id: 'gas_deployment' as ActiveTab,
       label: 'Database & Sync Hub',
       icon: FileCode2,
-      badge: hasGasUrl ? 'Sync' : 'Setup'
+      badge: hasGasUrl ? 'Sync' : 'Setup',
+      adminOnly: true // HIDDEN for regular warehouse operators
     }
   ];
+
+  // If user is not admin, hide the GAS deployment / settings tab completely!
+  const navItems = allNavItems.filter((item) => !item.adminOnly || isAdmin);
 
   const isLight = theme === 'light';
 
@@ -153,7 +174,8 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
           </div>
-          {onOpenAuthorization && (
+          {/* Only Admins can see the raw Auth Mechanism & Links button */}
+          {isAdmin && onOpenAuthorization && (
             <>
               <span className={isLight ? 'text-slate-300' : 'text-slate-700'}>|</span>
               <button
@@ -163,13 +185,39 @@ export const Header: React.FC<HeaderProps> = ({
                 title="View Database Authorization Mechanism & Google Account Permissions"
               >
                 <Key className="w-3 h-3 text-amber-500" />
-                <span>🔑 Auth Mechanism &amp; Links</span>
+                <span>🔑 Admin Setup &amp; Links</span>
               </button>
             </>
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          {/* User Role Badge */}
+          {currentUser && (
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`text-[11px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${
+                  isAdmin
+                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                    : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                }`}
+                title={`Logged in as ${currentUser.name} (${currentUser.role.toUpperCase()})`}
+              >
+                {isAdmin ? '👑 Admin' : '⚡ Operator'}
+              </span>
+              {!isAdmin && onPromoteToAdmin && (
+                <button
+                  type="button"
+                  onClick={onPromoteToAdmin}
+                  className="text-[10px] text-amber-600 dark:text-amber-400 hover:underline font-semibold cursor-pointer"
+                  title="Unlock Administrator features with Admin PIN"
+                >
+                  Unlock Admin
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Light / Dark Mode Toggle */}
           <button
             onClick={toggleTheme}
@@ -184,30 +232,31 @@ export const Header: React.FC<HeaderProps> = ({
             {isLight ? (
               <>
                 <Sun className="w-3.5 h-3.5 text-amber-500" />
-                <span>Light Mode</span>
+                <span>Light</span>
               </>
             ) : (
               <>
                 <Moon className="w-3.5 h-3.5 text-sky-400" />
-                <span>Dark Mode</span>
+                <span>Dark</span>
               </>
             )}
           </button>
 
-          <div className="flex items-center gap-2">
-            <UserCircle2 className="w-3.5 h-3.5 text-slate-400" />
+          <div className="flex items-center gap-1.5">
+            <UserCircle2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <input
               type="text"
               value={operatorName}
               onChange={(e) => setOperatorName(e.target.value)}
               title="Station / Operator Name"
-              className={`rounded px-2 py-0.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-amber-500 w-36 border ${
+              className={`rounded px-2 py-0.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-amber-500 w-32 border ${
                 isLight
                   ? 'bg-white border-slate-300 text-slate-800'
                   : 'bg-slate-800 border-slate-700 text-slate-200'
               }`}
             />
           </div>
+
           <button
             onClick={() => StorageService.exportReturnsToCsv()}
             className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition border ${
@@ -218,8 +267,21 @@ export const Header: React.FC<HeaderProps> = ({
             title="Download full returns inventory CSV"
           >
             <Download className="w-3 h-3" />
-            <span>Export CSV</span>
+            <span className="hidden sm:inline">Export</span>
           </button>
+
+          {/* Logout Button */}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              type="button"
+              className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold border border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+              title="Sign out of station"
+            >
+              <LogOut className="w-3 h-3" />
+              <span>Logout</span>
+            </button>
+          )}
         </div>
       </div>
 

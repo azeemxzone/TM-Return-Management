@@ -22,7 +22,7 @@ import {
   XCircle
 } from 'lucide-react';
 
-export type GasSubTab = 'ledger_guide' | 'operator_guide' | 'code_gs' | 'sheet_headers' | 'troubleshooting' | 'auth_mechanism' | 'domain_deployment';
+export type GasSubTab = 'ledger_guide' | 'operator_guide' | 'code_gs' | 'sheet_headers' | 'troubleshooting' | 'auth_mechanism' | 'domain_deployment' | 'portal_auth';
 
 interface GasDeploymentCenterProps {
   theme?: ThemeMode;
@@ -38,6 +38,13 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isTesting, setIsTesting] = useState<boolean>(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Portal Security & Credentials state
+  const [adminPin, setAdminPin] = useState<string>(() => StorageService.getCredentials().adminPin);
+  const [adminPassword, setAdminPassword] = useState<string>(() => StorageService.getCredentials().adminPassword);
+  const [operatorPin, setOperatorPin] = useState<string>(() => StorageService.getCredentials().operatorPin);
+  const [operatorPassword, setOperatorPassword] = useState<string>(() => StorageService.getCredentials().operatorPassword);
+  const [credsSavedToast, setCredsSavedToast] = useState<string | null>(null);
 
   // Live Authorization Mechanism test state
   const [authTestResult, setAuthTestResult] = useState<{
@@ -332,9 +339,29 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
           <div>
-            <label className="block text-xs font-bold mb-1.5 text-slate-700 dark:text-slate-300">
-              Google Apps Script Web App URL:
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                Google Apps Script Web App URL:
+              </label>
+              {StorageService.isUsingEmbeddedGasUrl() ? (
+                <span className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold px-1.5 py-0.2 rounded border border-emerald-500/30">
+                  Embedded Default
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    StorageService.resetToEmbeddedGasUrl();
+                    setGasUrl(StorageService.getGasUrl());
+                    setConfigSavedToast('✓ Reset to embedded default Google Apps Script Web App URL.');
+                    setTimeout(() => setConfigSavedToast(null), 4000);
+                  }}
+                  className="text-[10px] text-amber-600 dark:text-amber-400 hover:underline font-semibold cursor-pointer"
+                >
+                  Reset to Embedded
+                </button>
+              )}
+            </div>
             <input
               type="text"
               value={gasUrl}
@@ -346,6 +373,11 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
                   : 'bg-slate-950 border-slate-700 text-white placeholder-slate-600'
               }`}
             />
+            <p className="text-[10px] text-slate-500 mt-1">
+              {StorageService.isUsingEmbeddedGasUrl()
+                ? 'Pre-embedded in codebase. Hidden from regular operators.'
+                : 'Custom Web App URL configured in local browser storage.'}
+            </p>
           </div>
 
           <div>
@@ -443,7 +475,8 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
           { id: 'code_gs', label: '4. Backend Code.gs File' },
           { id: 'troubleshooting', label: '5. Troubleshooting & Permissions' },
           { id: 'auth_mechanism', label: '6. 🔑 Authorization Mechanism & Links' },
-          { id: 'domain_deployment', label: '7. 🌐 Deploy to www.tabbymart.com' }
+          { id: 'domain_deployment', label: '7. 🌐 Deploy to www.tabbymart.com' },
+          { id: 'portal_auth', label: '8. 🔒 Station Auth & Passcodes' }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -1239,6 +1272,237 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
                 </li>
               </ol>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sub-Tab 8: Portal Authentication & Passcodes */}
+      {activeSubTab === 'portal_auth' && (
+        <div
+          className={`rounded-3xl p-6 sm:p-8 space-y-6 text-xs leading-relaxed border ${
+            isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'
+          }`}
+        >
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
+            <div>
+              <span className="text-amber-500 font-extrabold uppercase tracking-wider text-[11px] block mb-1">
+                Security Administration
+              </span>
+              <h3 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <Lock className="w-5 h-5 text-amber-500" />
+                <span>Station Authentication &amp; Credentials Manager</span>
+              </h3>
+              <p className="text-slate-500 text-xs mt-1">
+                Configure station PINs, passwords, and understand how the &ldquo;Only Me&rdquo; Google Sheet security layer operates.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                Supervisor Controls
+              </span>
+            </div>
+          </div>
+
+          {/* Section 1: Detailed Explanation of "Only Me" Google Sheet Restriction */}
+          <div className={`p-5 rounded-2xl border space-y-3 ${
+            isLight ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-950' : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-200'
+          }`}>
+            <h4 className="font-extrabold text-sm text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+              <span>What Happens When You Restrict Google Sheet to &ldquo;Only Me&rdquo;?</span>
+            </h4>
+            <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+              When you restrict your Google Sheet to <strong>&ldquo;Only Me&rdquo;</strong> in Google Drive, the spreadsheet file is completely private. Here is how normal operators are still able to record returns without needing access to your Google account or Drive:
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+              <div className={`p-3.5 rounded-xl border ${isLight ? 'bg-white border-emerald-200' : 'bg-slate-950 border-emerald-900/40'}`}>
+                <div className="font-bold text-xs text-slate-900 dark:text-white mb-1 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px]">1</span>
+                  <span>Sheet Stays Private</span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                  Nobody on the internet, and no warehouse staff member, can view, browse, or open your spreadsheet URL directly.
+                </p>
+              </div>
+
+              <div className={`p-3.5 rounded-xl border ${isLight ? 'bg-white border-emerald-200' : 'bg-slate-950 border-emerald-900/40'}`}>
+                <div className="font-bold text-xs text-slate-900 dark:text-white mb-1 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px]">2</span>
+                  <span>Serverless Proxy Bridge</span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                  The Google Apps Script Web App is deployed with <strong>&ldquo;Execute as: Me&rdquo;</strong>. It runs with <em>your</em> authorized permissions in Google Cloud.
+                </p>
+              </div>
+
+              <div className={`p-3.5 rounded-xl border ${isLight ? 'bg-white border-emerald-200' : 'bg-slate-950 border-emerald-900/40'}`}>
+                <div className="font-bold text-xs text-slate-900 dark:text-white mb-1 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px]">3</span>
+                  <span>Zero Formula Tampering</span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                  Operators only send validated JSON rows (Order ID, SKU, weights, photo links). They cannot alter your sheet's P&amp;L formulas or summary tabs.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Manage Station Credentials Form */}
+          <div className={`p-6 rounded-2xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'}`}>
+            <h4 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2 mb-2">
+              <Key className="w-4 h-4 text-amber-500" />
+              <span>Modify Station Access PINs &amp; Passwords</span>
+            </h4>
+            <p className="text-slate-500 text-xs mb-4">
+              Update credentials used to log into the portal. Changes take effect immediately on this station and are saved to persistent local storage.
+            </p>
+
+            {credsSavedToast && (
+              <div className="mb-4 p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span>{credsSavedToast}</span>
+              </div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                StorageService.saveCredentials({
+                  adminPin: adminPin.trim(),
+                  adminPassword: adminPassword.trim(),
+                  operatorPin: operatorPin.trim(),
+                  operatorPassword: operatorPassword.trim()
+                });
+                setCredsSavedToast('✓ Portal access credentials & PINs updated successfully!');
+                setTimeout(() => setCredsSavedToast(null), 4000);
+              }}
+              className="space-y-4"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Operator PIN */}
+                <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                      <span>⚡ Floor Operator Quick PIN</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">Default: 1234</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={operatorPin}
+                    onChange={(e) => setOperatorPin(e.target.value)}
+                    maxLength={10}
+                    className={`w-full font-mono font-bold text-sm rounded-xl px-3 py-2 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                      isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
+                    }`}
+                    required
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1.5">
+                    Fast 4-digit PIN for warehouse staff at barcode/weighing stations.
+                  </p>
+                </div>
+
+                {/* Operator Password */}
+                <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                      <span>⚡ Floor Operator Password</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">Default: tabby123</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={operatorPassword}
+                    onChange={(e) => setOperatorPassword(e.target.value)}
+                    className={`w-full font-mono text-sm rounded-xl px-3 py-2 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                      isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
+                    }`}
+                    required
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1.5">
+                    Password for username &ldquo;operator&rdquo; login.
+                  </p>
+                </div>
+
+                {/* Admin PIN */}
+                <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-xs text-sky-600 dark:text-sky-400 flex items-center gap-1.5">
+                      <span>👑 Admin Supervisor PIN</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">Default: 8888</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={adminPin}
+                    onChange={(e) => setAdminPin(e.target.value)}
+                    maxLength={10}
+                    className={`w-full font-mono font-bold text-sm rounded-xl px-3 py-2 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                      isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
+                    }`}
+                    required
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1.5">
+                    Unlocks full system features and Database &amp; Sync Hub.
+                  </p>
+                </div>
+
+                {/* Admin Password */}
+                <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-xs text-sky-600 dark:text-sky-400 flex items-center gap-1.5">
+                      <span>👑 Admin Supervisor Password</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">Default: tabbyadmin2026</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    className={`w-full font-mono text-sm rounded-xl px-3 py-2 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                      isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
+                    }`}
+                    required
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1.5">
+                    Password for username &ldquo;admin&rdquo; login.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminPin('8888');
+                    setAdminPassword('tabbyadmin2026');
+                    setOperatorPin('1234');
+                    setOperatorPassword('tabby123');
+                    StorageService.saveCredentials({
+                      adminPin: '8888',
+                      adminPassword: 'tabbyadmin2026',
+                      operatorPin: '1234',
+                      operatorPassword: 'tabby123'
+                    });
+                    setCredsSavedToast('✓ Reset credentials to system defaults.');
+                    setTimeout(() => setCredsSavedToast(null), 3500);
+                  }}
+                  className={`text-xs font-semibold px-3 py-2 rounded-xl border transition ${
+                    isLight ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-700 hover:bg-slate-800'
+                  }`}
+                >
+                  Reset to Factory Defaults
+                </button>
+
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl font-bold text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition cursor-pointer"
+                >
+                  Save Access Credentials
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
