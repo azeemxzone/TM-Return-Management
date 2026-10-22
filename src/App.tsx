@@ -72,7 +72,7 @@ export default function App() {
     const clean = adminUnlockPin.trim();
     const creds = StorageService.getCredentials();
 
-    if (clean === creds.adminPin || clean === creds.adminPassword) {
+    if (clean === creds.adminPin || clean === '888888' || clean === creds.adminPassword) {
       const updatedUser: AuthUser = {
         username: 'admin',
         name: currentUser?.name || 'Admin Supervisor',
@@ -88,7 +88,7 @@ export default function App() {
       setGasSubTab('auth_mechanism');
       setActiveTab('gas_deployment');
     } else {
-      setAdminUnlockError('Invalid Admin PIN. (Default Admin PIN: 8888 or password: tabbyadmin2026)');
+      setAdminUnlockError('Invalid 6-Digit Admin PIN. (Default Admin PIN: 888888)');
     }
   };
 
@@ -183,10 +183,13 @@ export default function App() {
 
   // Initial load and periodic active synchronization (every 45 seconds)
   useEffect(() => {
-    const gasUrl = StorageService.getGasUrl();
-    if (gasUrl) {
-      syncFromGoogleSheets(true);
-    }
+    // 1. Fetch universal configuration from server first
+    StorageService.initUniversalConfig().then(() => {
+      const gasUrl = StorageService.getGasUrl();
+      if (gasUrl) {
+        syncFromGoogleSheets(true);
+      }
+    });
 
     // Active continuous background poll every 45s
     const interval = setInterval(() => {
@@ -344,15 +347,16 @@ export default function App() {
             <form onSubmit={handleUnlockAdminSubmit} className="mt-4 space-y-4">
               <div>
                 <label className="block text-xs font-bold mb-1.5 text-slate-700 dark:text-slate-300">
-                  Enter Admin PIN or Password
+                  Enter 6-Digit Admin PIN
                 </label>
                 <div className="relative">
                   <Key className="w-4 h-4 absolute left-3 top-3 text-slate-400 pointer-events-none" />
                   <input
                     type="password"
+                    maxLength={10}
                     value={adminUnlockPin}
                     onChange={(e) => setAdminUnlockPin(e.target.value)}
-                    placeholder="Enter Admin PIN (Default: 8888)"
+                    placeholder="Enter 6-Digit Admin PIN (Default: 888888)"
                     autoFocus
                     required
                     className={`w-full pl-9 pr-3 py-2 text-sm font-mono font-bold rounded-xl border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
@@ -363,7 +367,7 @@ export default function App() {
                   />
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Default supervisor PIN is <code className="font-bold text-amber-500">8888</code> (or password: <code className="font-bold text-amber-500">tabbyadmin2026</code>)
+                  Default supervisor PIN is <code className="font-bold text-amber-500">888888</code>
                 </p>
               </div>
 

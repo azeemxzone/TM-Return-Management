@@ -6,6 +6,54 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+import fs from 'fs';
+
+// Universal persistent config file path
+const CONFIG_FILE = path.resolve(__dirname, 'gas-config.json');
+
+const DEFAULT_CONFIG = {
+  gasUrl: 'https://script.google.com/macros/s/AKfycbzE4_JnfY5jpz4QnuXY5p2ZDy7SwUpezjouJXNkN2aZmfslYu_IcVAHNd5CggUZNf-7/exec',
+  sheetId: '',
+  warehousePasscode: 'TBM-PASS-2026',
+  credentials: {
+    adminPin: '888888',
+    operatorPin: '123456'
+  },
+  updatedAt: new Date().toISOString()
+};
+
+function readUniversalConfig() {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_CONFIG, ...parsed };
+    }
+  } catch (e) {
+    console.warn('[Config Warn]: Could not read gas-config.json, using default', e);
+  }
+  return { ...DEFAULT_CONFIG };
+}
+
+function saveUniversalConfig(patch: any) {
+  const current = readUniversalConfig();
+  const updated = {
+    ...current,
+    ...patch,
+    credentials: {
+      ...current.credentials,
+      ...(patch.credentials || {})
+    },
+    updatedAt: new Date().toISOString()
+  };
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[Config Error]: Could not write gas-config.json', e);
+  }
+  return updated;
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -18,6 +66,29 @@ async function startServer() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
+  // Universal GAS Config API: Enables single universal URL and credentials across all browsers
+  app.get('/api/gas-config', (req, res) => {
+    const config = readUniversalConfig();
+    res.json({ success: true, ...config });
+  });
+
+  app.post('/api/gas-config', (req, res) => {
+    try {
+      const { gasUrl, sheetId, warehousePasscode, credentials } = req.body;
+      const patch: any = {};
+      if (gasUrl !== undefined && typeof gasUrl === 'string') patch.gasUrl = gasUrl.trim();
+      if (sheetId !== undefined && typeof sheetId === 'string') patch.sheetId = sheetId.trim();
+      if (warehousePasscode !== undefined && typeof warehousePasscode === 'string') patch.warehousePasscode = warehousePasscode.trim();
+      if (credentials && typeof credentials === 'object') patch.credentials = credentials;
+
+      const updated = saveUniversalConfig(patch);
+      console.log(`[Universal Config]: Updated universal GAS URL: ${updated.gasUrl}`);
+      res.json({ success: true, config: updated, message: 'Universal configuration saved and active across all stations.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || 'Failed to save universal configuration.' });
+    }
+  });
+
   // Direct route to serve the latest updated Google Apps Script backend code
   app.get('/gas/Code.gs', (req, res) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -28,12 +99,18 @@ async function startServer() {
   // Eliminates browser CORS issues and transparently follows Google 302 redirects
   app.post('/api/gas-proxy', async (req, res) => {
     try {
-      const { gasUrl, method = 'POST', payload, queryParams } = req.body;
+      let { gasUrl, method = 'POST', payload, queryParams } = req.body;
 
-      if (!gasUrl || typeof gasUrl !== 'string') {
+      // If gasUrl is not provided, automatically use the server's universal configured URL
+      if (!gasUrl || typeof gasUrl !== 'string' || gasUrl.trim() === '') {
+        const universalConfig = readUniversalConfig();
+        gasUrl = universalConfig.gasUrl;
+      }
+
+      if (!gasUrl || typeof gasUrl !== 'string' || !gasUrl.startsWith('http')) {
         return res.status(400).json({
           success: false,
-          error: 'Missing or invalid "gasUrl" in proxy request.'
+          error: 'Missing or invalid "gasUrl". Please configure the Web App URL in Database & Sync Hub.'
         });
       }
 
@@ -76,6 +153,21 @@ async function startServer() {
       }
 
       const rawText = await gasResponse.text();
+
+      // Check if Google redirected to a Google Accounts Login page (happens when "Who has access" is set to "Only myself" instead of "Anyone")
+      if (
+        rawText.includes('ServiceLogin') ||
+        rawText.includes('accounts.google.com') ||
+        rawText.includes('Sign in - Google Accounts') ||
+        (gasResponse.url && gasResponse.url.includes('accounts.google.com'))
+      ) {
+        return res.status(200).json({
+          success: false,
+          isGoogleLoginRedirect: true,
+          error: 'Google Sheet Access Configuration: Google returned a sign-in screen because your Apps Script deployment is set to "Only myself". To keep your Google Sheet private to "Only Me" while allowing the app to sync seamlessly: In Google Apps Script, click Deploy > Manage deployments > Edit (pencil icon) > set "Execute as: Me" and "Who has access: Anyone". Then click Deploy.'
+        });
+      }
+
       let parsedData: any = null;
 
       try {

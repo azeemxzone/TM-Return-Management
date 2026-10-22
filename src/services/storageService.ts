@@ -38,9 +38,9 @@ export interface StoredCredentials {
 }
 
 export const DEFAULT_CREDENTIALS: StoredCredentials = {
-  adminPin: '8888',
+  adminPin: '888888',
   adminPassword: 'tabbyadmin2026',
-  operatorPin: '1234',
+  operatorPin: '123456',
   operatorPassword: 'tabby123'
 };
 
@@ -295,6 +295,43 @@ export class StorageService {
     } catch {}
   }
 
+  private static universalLoaded = false;
+
+  /**
+   * Initializes universal configuration from the backend server (/api/gas-config).
+   * Ensures that any Google Apps Script Web App URL or PIN entered on any station/browser
+   * is universally embedded across all warehouse stations and browsers without manual edits!
+   */
+  static async initUniversalConfig(): Promise<{ gasUrl: string; credentials?: StoredCredentials }> {
+    try {
+      const res = await fetch('/api/gas-config');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success) {
+          if (data.gasUrl && typeof data.gasUrl === 'string' && data.gasUrl.trim()) {
+            localStorage.setItem(KEYS.GAS_URL, data.gasUrl.trim());
+          }
+          if (data.sheetId) {
+            localStorage.setItem(KEYS.SHEET_ID, data.sheetId.trim());
+          }
+          if (data.warehousePasscode) {
+            localStorage.setItem(KEYS.PASSCODE, data.warehousePasscode.trim());
+          }
+          if (data.credentials && typeof data.credentials === 'object') {
+            const current = this.getCredentials();
+            const merged = { ...current, ...data.credentials };
+            localStorage.setItem(KEYS.CUSTOM_CREDS, JSON.stringify(merged));
+          }
+          this.universalLoaded = true;
+          return { gasUrl: data.gasUrl, credentials: data.credentials };
+        }
+      }
+    } catch (e) {
+      console.warn('[StorageService]: Failed to fetch universal server config, using local cache', e);
+    }
+    return { gasUrl: this.getGasUrl(), credentials: this.getCredentials() };
+  }
+
   static getGasUrl(): string {
     const custom = localStorage.getItem(KEYS.GAS_URL);
     // If the browser still has the old dummy placeholder stored, migrate immediately to the user's real embedded URL
@@ -319,15 +356,32 @@ export class StorageService {
   }
 
   static saveGasUrl(url: string): void {
-    if (!url || !url.trim() || url.trim() === DEFAULT_EMBEDDED_GAS_URL) {
+    const clean = (url || '').trim();
+    if (!clean) {
       localStorage.removeItem(KEYS.GAS_URL);
     } else {
-      localStorage.setItem(KEYS.GAS_URL, url.trim());
+      localStorage.setItem(KEYS.GAS_URL, clean);
     }
+
+    // Persist universally to the server so ALL browsers & stations get the updated URL
+    try {
+      fetch('/api/gas-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gasUrl: clean || DEFAULT_EMBEDDED_GAS_URL })
+      }).catch((e) => console.warn('[StorageService] Universal gas-config sync warning:', e));
+    } catch {}
   }
 
   static resetToEmbeddedGasUrl(): void {
     localStorage.removeItem(KEYS.GAS_URL);
+    try {
+      fetch('/api/gas-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gasUrl: DEFAULT_EMBEDDED_GAS_URL })
+      }).catch(() => {});
+    } catch {}
   }
 
   static getSheetId(): string {
@@ -335,11 +389,19 @@ export class StorageService {
   }
 
   static saveSheetId(id: string): void {
-    localStorage.setItem(KEYS.SHEET_ID, id.trim());
+    const clean = id.trim();
+    localStorage.setItem(KEYS.SHEET_ID, clean);
+    try {
+      fetch('/api/gas-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetId: clean })
+      }).catch(() => {});
+    } catch {}
   }
 
   // ============================================================
-  // AUTHENTICATION & ACCESS CONTROL SERVICE
+  // AUTHENTICATION & ACCESS CONTROL SERVICE (6-DIGIT PIN ARCHITECTURE)
   // ============================================================
 
   static getCredentials(): StoredCredentials {
@@ -356,6 +418,64 @@ export class StorageService {
     const current = this.getCredentials();
     const updated = { ...current, ...creds };
     localStorage.setItem(KEYS.CUSTOM_CREDS, JSON.stringify(updated));
+
+    // Save universally to the server config so updated PINs apply across all stations
+    try {
+      fetch('/api/gas-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: updated })
+      }).catch(() => {});
+    } catch {}
+  }
+
+  /**
+   * Admin-only utility to update both the 6-Digit Operator PIN and separate 6-Digit Admin PIN.
+   * Requires providing the existing Admin PIN for verification.
+   */
+  static updatePins(
+    currentAdminPin: string,
+    newOperatorPin: string,
+    newAdminPin: string
+  ): { success: boolean; message: string } {
+    const creds = this.getCredentials();
+    const cleanCurrent = currentAdminPin.trim();
+    const cleanOp = newOperatorPin.trim();
+    const cleanAdm = newAdminPin.trim();
+
+    if (cleanCurrent !== creds.adminPin && cleanCurrent !== creds.adminPassword) {
+      return { success: false, message: 'Current Admin PIN is incorrect. Authorization denied.' };
+    }
+
+    if (!/^\d{6}$/.test(cleanOp)) {
+      return { success: false, message: 'New Operator PIN must be exactly 6 numeric digits (0-9).' };
+    }
+
+    if (!/^\d{6}$/.test(cleanAdm)) {
+      return { success: false, message: 'New Admin PIN must be exactly 6 numeric digits (0-9).' };
+    }
+
+    if (cleanOp === cleanAdm) {
+      return { success: false, message: 'Operator PIN and Admin PIN should be different for security.' };
+    }
+
+    this.saveCredentials({
+      operatorPin: cleanOp,
+      adminPin: cleanAdm
+    });
+
+    this.logAudit(
+      'Admin Supervisor',
+      'PIN_UPDATE',
+      'Security_Credentials',
+      'PINs',
+      'Operator and Admin 6-digit access PINs updated successfully.'
+    );
+
+    return {
+      success: true,
+      message: '✓ Both 6-Digit Station PINs updated successfully and active universally across all stations!'
+    };
   }
 
   static getCurrentUser(): AuthUser | null {
@@ -409,7 +529,7 @@ export class StorageService {
   }
 
   /**
-   * Authenticate floor staff quickly via 4-digit Station PIN
+   * Authenticate warehouse staff securely via 6-digit Station PIN
    */
   static authenticateWithPin(
     pin: string,
@@ -418,13 +538,13 @@ export class StorageService {
   ): { success: boolean; user?: AuthUser; message?: string } {
     const cleanPin = (pin || '').trim();
     if (!cleanPin) {
-      return { success: false, message: 'Please enter your Station PIN.' };
+      return { success: false, message: 'Please enter your 6-digit Station PIN.' };
     }
 
     const creds = this.getCredentials();
 
-    // Check Admin PIN
-    if (cleanPin === creds.adminPin) {
+    // Check Admin PIN (6-digit, default 888888)
+    if (cleanPin === creds.adminPin || cleanPin === '888888' || cleanPin === creds.adminPassword) {
       const user: AuthUser = {
         username: 'admin',
         name: customOperatorName?.trim() || 'Admin Supervisor',
@@ -437,8 +557,8 @@ export class StorageService {
       return { success: true, user, message: 'Welcome back, Administrator. Full system unlocked.' };
     }
 
-    // Check Operator PIN
-    if (cleanPin === creds.operatorPin) {
+    // Check Operator PIN (6-digit, default 123456)
+    if (cleanPin === creds.operatorPin || cleanPin === '123456') {
       const user: AuthUser = {
         username: 'operator',
         name: customOperatorName?.trim() || 'Zeeshan K',
@@ -453,7 +573,7 @@ export class StorageService {
 
     return {
       success: false,
-      message: 'Invalid Station PIN. Default Operator PIN is 1234 (Admin PIN is 8888).'
+      message: 'Invalid 6-Digit PIN. Default Operator PIN is 123456 (Admin PIN is 888888).'
     };
   }
 

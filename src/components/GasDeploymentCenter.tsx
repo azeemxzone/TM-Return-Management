@@ -1407,105 +1407,75 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                const cleanOp = operatorPin.trim();
+                const cleanAdm = adminPin.trim();
+
+                if (!/^\d{6}$/.test(cleanOp)) {
+                  alert('Floor Operator PIN must be exactly 6 numeric digits.');
+                  return;
+                }
+                if (!/^\d{6}$/.test(cleanAdm)) {
+                  alert('Admin Supervisor PIN must be exactly 6 numeric digits.');
+                  return;
+                }
+
                 StorageService.saveCredentials({
-                  adminPin: adminPin.trim(),
-                  adminPassword: adminPassword.trim(),
-                  operatorPin: operatorPin.trim(),
-                  operatorPassword: operatorPassword.trim()
+                  adminPin: cleanAdm,
+                  operatorPin: cleanOp
                 });
-                setCredsSavedToast('✓ Portal access credentials & PINs updated successfully!');
+                setCredsSavedToast('✓ 6-Digit Station PINs updated and synced universally across all browsers and stations!');
                 setTimeout(() => setCredsSavedToast(null), 4000);
               }}
               className="space-y-4"
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Operator PIN */}
+                {/* Operator 6-Digit PIN */}
                 <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-bold text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                      <span>⚡ Floor Operator Quick PIN</span>
+                      <span>⚡ Floor Operator 6-Digit PIN</span>
                     </span>
-                    <span className="text-[10px] text-slate-400 font-mono">Default: 1234</span>
+                    <span className="text-[10px] text-slate-400 font-mono font-bold">Default: 123456</span>
                   </div>
                   <input
                     type="text"
+                    inputMode="numeric"
                     value={operatorPin}
-                    onChange={(e) => setOperatorPin(e.target.value)}
-                    maxLength={10}
-                    className={`w-full font-mono font-bold text-sm rounded-xl px-3 py-2 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                    onChange={(e) => setOperatorPin(e.target.value.replace(/\D/g, ''))}
+                    maxLength={6}
+                    placeholder="123456"
+                    className={`w-full font-mono font-bold text-center tracking-widest text-base rounded-xl px-3 py-2.5 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
                       isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
                     }`}
                     required
                   />
                   <p className="text-[10px] text-slate-500 mt-1.5">
-                    Fast 4-digit PIN for warehouse staff at barcode/weighing stations.
+                    Fast 6-digit PIN used by warehouse operators for parcel receipt, weighing, and QC.
                   </p>
                 </div>
 
-                {/* Operator Password */}
-                <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                      <span>⚡ Floor Operator Password</span>
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">Default: tabby123</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={operatorPassword}
-                    onChange={(e) => setOperatorPassword(e.target.value)}
-                    className={`w-full font-mono text-sm rounded-xl px-3 py-2 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
-                      isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
-                    }`}
-                    required
-                  />
-                  <p className="text-[10px] text-slate-500 mt-1.5">
-                    Password for username &ldquo;operator&rdquo; login.
-                  </p>
-                </div>
-
-                {/* Admin PIN */}
+                {/* Admin 6-Digit PIN */}
                 <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-bold text-xs text-sky-600 dark:text-sky-400 flex items-center gap-1.5">
-                      <span>👑 Admin Supervisor PIN</span>
+                      <span>👑 Admin Supervisor 6-Digit PIN</span>
                     </span>
-                    <span className="text-[10px] text-slate-400 font-mono">Default: 8888</span>
+                    <span className="text-[10px] text-slate-400 font-mono font-bold">Default: 888888</span>
                   </div>
                   <input
                     type="text"
+                    inputMode="numeric"
                     value={adminPin}
-                    onChange={(e) => setAdminPin(e.target.value)}
-                    maxLength={10}
-                    className={`w-full font-mono font-bold text-sm rounded-xl px-3 py-2 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                    onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, ''))}
+                    maxLength={6}
+                    placeholder="888888"
+                    className={`w-full font-mono font-bold text-center tracking-widest text-base rounded-xl px-3 py-2.5 border focus:outline-none focus:ring-2 focus:ring-sky-500 ${
                       isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
                     }`}
                     required
                   />
                   <p className="text-[10px] text-slate-500 mt-1.5">
-                    Unlocks full system features and Database &amp; Sync Hub.
-                  </p>
-                </div>
-
-                {/* Admin Password */}
-                <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-xs text-sky-600 dark:text-sky-400 flex items-center gap-1.5">
-                      <span>👑 Admin Supervisor Password</span>
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">Default: tabbyadmin2026</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    className={`w-full font-mono text-sm rounded-xl px-3 py-2 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
-                      isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
-                    }`}
-                    required
-                  />
-                  <p className="text-[10px] text-slate-500 mt-1.5">
-                    Password for username &ldquo;admin&rdquo; login.
+                    Separate 6-digit Admin PIN to unlock full settings, PIN management, and Google Apps Script sync.
                   </p>
                 </div>
               </div>
@@ -1514,20 +1484,16 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
                 <button
                   type="button"
                   onClick={() => {
-                    setAdminPin('8888');
-                    setAdminPassword('tabbyadmin2026');
-                    setOperatorPin('1234');
-                    setOperatorPassword('tabby123');
+                    setAdminPin('888888');
+                    setOperatorPin('123456');
                     StorageService.saveCredentials({
-                      adminPin: '8888',
-                      adminPassword: 'tabbyadmin2026',
-                      operatorPin: '1234',
-                      operatorPassword: 'tabby123'
+                      adminPin: '888888',
+                      operatorPin: '123456'
                     });
-                    setCredsSavedToast('✓ Reset credentials to system defaults.');
+                    setCredsSavedToast('✓ Reset 6-digit PINs to factory defaults (123456 / 888888).');
                     setTimeout(() => setCredsSavedToast(null), 3500);
                   }}
-                  className={`text-xs font-semibold px-3 py-2 rounded-xl border transition ${
+                  className={`text-xs font-semibold px-3 py-2 rounded-xl border transition cursor-pointer ${
                     isLight ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-700 hover:bg-slate-800'
                   }`}
                 >
@@ -1538,7 +1504,7 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
                   type="submit"
                   className="px-5 py-2.5 rounded-xl font-bold text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition cursor-pointer"
                 >
-                  Save Access Credentials
+                  Save Universal 6-Digit PINs
                 </button>
               </div>
             </form>
