@@ -48,6 +48,8 @@ function saveUniversalConfig(patch: any) {
   };
   try {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+    const publicConfigFile = path.resolve(__dirname, 'public', 'gas-config.json');
+    fs.writeFileSync(publicConfigFile, JSON.stringify(updated, null, 2), 'utf-8');
   } catch (e) {
     console.error('[Config Error]: Could not write gas-config.json', e);
   }

@@ -298,18 +298,64 @@ export class StorageService {
   private static universalLoaded = false;
 
   /**
-   * Initializes universal configuration from the backend server (/api/gas-config).
-   * Ensures that any Google Apps Script Web App URL or PIN entered on any station/browser
-   * is universally embedded across all warehouse stations and browsers without manual edits!
+   * Initializes universal configuration.
+   * 1. Checks URL query parameters (?gasUrl=...&passcode=...) for instant 1-click station sync.
+   * 2. Checks backend /api/gas-config (if running fullstack Node).
+   * 3. Falls back to static /gas-config.json (for static GitHub Pages deployment on www.tabbymart.com).
+   * Ensures that any Google Apps Script Web App URL or PIN applies universally across all warehouse stations and browsers!
    */
   static async initUniversalConfig(): Promise<{ gasUrl: string; credentials?: StoredCredentials }> {
+    // 1. Check for URL query parameter handoff (e.g. 1-click sync link from admin)
+    if (typeof window !== 'undefined' && window.location && window.location.search) {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const queryGasUrl = urlParams.get('gasUrl');
+        const queryPasscode = urlParams.get('passcode') || urlParams.get('token');
+        const querySheetId = urlParams.get('sheetId');
+        let didUpdate = false;
+
+        if (queryGasUrl && queryGasUrl.trim().startsWith('https://script.google.com/macros/s/')) {
+          localStorage.setItem(KEYS.GAS_URL, queryGasUrl.trim());
+          didUpdate = true;
+        }
+        if (queryPasscode && queryPasscode.trim()) {
+          localStorage.setItem(KEYS.PASSCODE, queryPasscode.trim());
+          didUpdate = true;
+        }
+        if (querySheetId && querySheetId.trim()) {
+          localStorage.setItem(KEYS.SHEET_ID, querySheetId.trim());
+          didUpdate = true;
+        }
+
+        if (didUpdate) {
+          // Clean up address bar query params without reloading
+          const cleanUrl = window.location.pathname + window.location.hash;
+          window.history.replaceState({}, document.title, cleanUrl);
+          this.universalLoaded = true;
+          return { gasUrl: this.getGasUrl(), credentials: this.getCredentials() };
+        }
+      } catch (e) {
+        console.warn('[StorageService]: Error parsing URL parameters', e);
+      }
+    }
+
+    // 2. Fetch universal configuration from server or static /gas-config.json
     try {
-      const res = await fetch('/api/gas-config');
-      if (res.ok) {
+      let res: Response | null = await fetch('/api/gas-config').catch(() => null);
+      if (!res || !res.ok) {
+        // Fallback to static gas-config.json (hosted on GitHub Pages /dist/gas-config.json)
+        res = await fetch(`/gas-config.json?_t=${Date.now()}`).catch(() => null);
+      }
+
+      if (res && res.ok) {
         const data = await res.json();
-        if (data && data.success) {
-          if (data.gasUrl && typeof data.gasUrl === 'string' && data.gasUrl.trim()) {
-            localStorage.setItem(KEYS.GAS_URL, data.gasUrl.trim());
+        if (data && (data.success || data.gasUrl)) {
+          if (data.gasUrl && typeof data.gasUrl === 'string' && data.gasUrl.trim().startsWith('https://script.google.com')) {
+            const currentStored = localStorage.getItem(KEYS.GAS_URL);
+            // If local storage is empty, uses outdated dummy placeholder, or doesn't match universal default
+            if (!currentStored || currentStored.includes('AKfycbz_tabbymart_returns_master') || !currentStored.startsWith('https://script.google.com')) {
+              localStorage.setItem(KEYS.GAS_URL, data.gasUrl.trim());
+            }
           }
           if (data.sheetId) {
             localStorage.setItem(KEYS.SHEET_ID, data.sheetId.trim());
@@ -323,13 +369,29 @@ export class StorageService {
             localStorage.setItem(KEYS.CUSTOM_CREDS, JSON.stringify(merged));
           }
           this.universalLoaded = true;
-          return { gasUrl: data.gasUrl, credentials: data.credentials };
+          return { gasUrl: this.getGasUrl(), credentials: this.getCredentials() };
         }
       }
     } catch (e) {
       console.warn('[StorageService]: Failed to fetch universal server config, using local cache', e);
     }
     return { gasUrl: this.getGasUrl(), credentials: this.getCredentials() };
+  }
+
+  /**
+   * Generates a 1-click station synchronization URL that can be opened on Browser 2,
+   * mobile barcode scanners, or any warehouse tablet to automatically set the Google Apps Script Web App URL and PIN.
+   */
+  static getStationSyncLink(): string {
+    if (typeof window === 'undefined') return '';
+    const base = `${window.location.origin}${window.location.pathname}`;
+    const params = new URLSearchParams();
+    params.set('gasUrl', this.getGasUrl());
+    const pass = this.getWarehousePasscode();
+    if (pass) params.set('passcode', pass);
+    const sheetId = this.getSheetId();
+    if (sheetId) params.set('sheetId', sheetId);
+    return `${base}?${params.toString()}`;
   }
 
   static getGasUrl(): string {
@@ -339,7 +401,7 @@ export class StorageService {
       localStorage.setItem(KEYS.GAS_URL, DEFAULT_EMBEDDED_GAS_URL);
       return DEFAULT_EMBEDDED_GAS_URL;
     }
-    if (custom && custom.trim()) {
+    if (custom && custom.trim() && custom.trim().startsWith('https://script.google.com')) {
       return custom.trim();
     }
     return DEFAULT_EMBEDDED_GAS_URL;

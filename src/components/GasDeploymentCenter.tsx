@@ -19,7 +19,9 @@ import {
   Key,
   Lock,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Share2,
+  Link2
 } from 'lucide-react';
 
 export type GasSubTab = 'ledger_guide' | 'operator_guide' | 'code_gs' | 'sheet_headers' | 'troubleshooting' | 'auth_mechanism' | 'domain_deployment' | 'portal_auth';
@@ -361,12 +363,56 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
               Connect to your &ldquo;Warehouse Returns Master &amp; P&amp;L Ledger&rdquo; spreadsheet via your Apps Script Web App URL.
             </p>
           </div>
-          <button
-            onClick={handleSaveConfig}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition shadow-xs cursor-pointer"
-          >
-            Save Configuration
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                const link = StorageService.getStationSyncLink();
+                navigator.clipboard.writeText(link);
+                setConfigSavedToast('✓ 1-Click Station Sync Link copied! Open this link on Browser 2 or on any mobile scanner to instantly connect with this URL & Passcode permanently.');
+                setTimeout(() => setConfigSavedToast(null), 6000);
+              }}
+              className={`px-3.5 py-2 border rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
+                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+              }`}
+              title="Generate a direct sync link that immediately configures this URL and Passcode on any other browser or mobile device"
+            >
+              <Share2 className="w-3.5 h-3.5 text-amber-500" />
+              <span>Copy 1-Click Sync Link (Browser 2 / Phone)</span>
+            </button>
+            <button
+              onClick={handleSaveConfig}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition shadow-xs cursor-pointer"
+            >
+              Save Configuration
+            </button>
+          </div>
+        </div>
+
+        {/* PERMANENT URL & MULTI-BROWSER EXPLANATION BANNER */}
+        <div className={`mt-3 p-3.5 rounded-2xl border text-xs leading-relaxed ${
+          isLight ? 'bg-amber-50/90 border-amber-200 text-amber-950' : 'bg-amber-950/40 border-amber-800 text-amber-200'
+        }`}>
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <div className="font-bold flex items-center gap-2 text-xs">
+                <span>Why did Browser 2 not update automatically? (And How to Keep 1 Permanent URL):</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                1. <strong>GitHub Pages Hosting:</strong> www.tabbymart.com is a static frontend. When you save a new URL in Browser 1, it saves into Browser 1&apos;s private local storage. Browser 2 on another tab/computer cannot read Browser 1&apos;s local storage.
+              </p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                2. <strong>How to Keep 1 Permanent URL Forever in Google Sheets:</strong> When updating <code>Code.gs</code>, do <strong>NOT</strong> click <em>&ldquo;New deployment&rdquo;</em> (which creates a new URL every time). Instead, click:
+                <span className="font-mono bg-amber-500/20 px-1 py-0.5 rounded mx-1 font-bold text-amber-900 dark:text-amber-100">Deploy &gt; Manage deployments &gt; Click ✏️ (Edit) &gt; Version: &ldquo;New version&rdquo; &gt; Deploy</span>.
+                Google updates the backend code while keeping the <strong>EXACT SAME WEB APP URL</strong> across all browsers!
+              </p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                3. <strong>Instant 1-Click Sync for Browser 2:</strong> Click <strong>&ldquo;Copy 1-Click Sync Link&rdquo;</strong> above and open that link in Browser 2 or on mobile scanners. It will automatically configure and lock in the URL and Passcode permanently.
+              </p>
+            </div>
+          </div>
         </div>
 
         {configSavedToast && (
