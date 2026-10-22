@@ -165,17 +165,26 @@ function doGet(e) {
       });
     }
 
-    if (action === 'getInitialData') {
+    var cleanAction = String(action || '').trim().toLowerCase();
+
+    if (cleanAction === 'getinitialdata' || cleanAction === 'get_initial_data') {
       return createJsonResponse(getInitialData());
-    } else if (action === 'getSkuCatalog') {
+    } else if (cleanAction === 'getskucatalog' || cleanAction === 'get_sku_catalog') {
       return createJsonResponse(getSkuCatalog());
-    } else if (action === 'getReturns') {
+    } else if (cleanAction === 'getreturns' || cleanAction === 'get_returns') {
       return createJsonResponse(getReturns());
-    } else if (action === 'getClaims') {
+    } else if (cleanAction === 'getclaims' || cleanAction === 'get_claims') {
       return createJsonResponse(getClaims());
-    } else if (action === 'ping') {
+    } else if (cleanAction === 'ping') {
       return createJsonResponse({ status: 'ok', authorized: true, timestamp: formatNormalTimestamp(), system: 'TABBYMART Returns & Claims' });
-    } else if (action === 'deleteReturn') {
+    } else if (
+      cleanAction === 'deletereturn' || 
+      cleanAction === 'delete' || 
+      cleanAction === 'deleterecord' || 
+      cleanAction === 'removereturn' || 
+      cleanAction === 'removerecord' ||
+      cleanAction === 'delete_return'
+    ) {
       var retId = (e && e.parameter && (e.parameter.returnId || e.parameter.returnEntryId)) || '';
       var ordId = (e && e.parameter && (e.parameter.orderId || e.parameter.originalOrderId)) || '';
       var op = (e && e.parameter && e.parameter.user) || 'Warehouse Operator';
@@ -187,7 +196,7 @@ function doGet(e) {
         } catch(ex) {}
       }
       return createJsonResponse(deleteReturnRecord(retId, ordId, op));
-    } else if (action === 'lookupOrder') {
+    } else if (cleanAction === 'lookuporder' || cleanAction === 'lookup_order' || cleanAction === 'lookup') {
       var lookupOrd = (e && e.parameter && (e.parameter.orderId || e.parameter.originalOrderId)) || '';
       if (!lookupOrd && e && e.parameter && e.parameter.data) {
         try {
@@ -196,12 +205,22 @@ function doGet(e) {
         } catch(ex) {}
       }
       return createJsonResponse(lookupOrderRecord(lookupOrd));
-    } else if (action === 'saveReturn' || action === 'updateReturn') {
+    } else if (
+      cleanAction === 'savereturn' || 
+      cleanAction === 'updatereturn' || 
+      cleanAction === 'modifyreturn' || 
+      cleanAction === 'editreturn' ||
+      cleanAction === 'updaterecord' ||
+      cleanAction === 'update_return'
+    ) {
       var returnData = {};
       if (e && e.parameter && e.parameter.data) {
         try { returnData = JSON.parse(e.parameter.data); } catch(ex) { returnData = e.parameter; }
       } else if (e && e.parameter) {
         returnData = e.parameter;
+      }
+      if (cleanAction !== 'savereturn' || (e && e.parameter && e.parameter.isUpdate === 'true')) {
+        returnData.isUpdate = true;
       }
       return createJsonResponse(saveReturnRecord(returnData, (e && e.parameter && e.parameter.user) || 'Warehouse Operator'));
     }
@@ -267,47 +286,74 @@ function doPost(e) {
       });
     }
 
-    var action = payload.action;
+    var rawAction = String(payload.action || (e && e.parameter && e.parameter.action) || '').trim();
+    var cleanAction = rawAction.toLowerCase();
     var result;
 
-    switch (action) {
-      case 'saveReturn':
-      case 'updateReturn':
-      case 'modifyReturn':
-        result = saveReturnRecord(payload.data || payload, payload.user || 'Warehouse Operator');
+    switch (cleanAction) {
+      case 'savereturn':
+      case 'updatereturn':
+      case 'modifyreturn':
+      case 'editreturn':
+      case 'updaterecord':
+      case 'update_return':
+      case 'save_return':
+        var returnObj = payload.data || payload;
+        if (cleanAction !== 'savereturn' && cleanAction !== 'save_return') {
+          returnObj.isUpdate = true;
+        } else if (payload.isUpdate) {
+          returnObj.isUpdate = true;
+        }
+        result = saveReturnRecord(returnObj, payload.user || 'Warehouse Operator');
         break;
-      case 'deleteReturn':
+      case 'deletereturn':
+      case 'delete':
+      case 'deleterecord':
+      case 'removereturn':
+      case 'removerecord':
+      case 'deletereturnrecord':
+      case 'delete_return':
+      case 'delete_record':
         var delRetId = payload.returnId || payload.returnEntryId || (payload.data && (payload.data.returnId || payload.data.returnEntryId)) || '';
         var delOrdId = payload.orderId || payload.originalOrderId || (payload.data && (payload.data.orderId || payload.data.originalOrderId)) || '';
         result = deleteReturnRecord(delRetId, delOrdId, payload.user || 'Warehouse Operator');
         break;
-      case 'lookupOrder':
+      case 'lookuporder':
+      case 'lookup_order':
+      case 'lookup':
         var lookOrd = payload.orderId || payload.originalOrderId || (payload.data && (payload.data.orderId || payload.data.originalOrderId)) || '';
         result = lookupOrderRecord(lookOrd);
         break;
-      case 'saveClaim':
+      case 'saveclaim':
+      case 'save_claim':
         result = saveClaimRecord(payload.data, payload.user || 'Claims Specialist');
         break;
-      case 'updateReturnStatus':
+      case 'updatereturnstatus':
+      case 'update_return_status':
         result = updateReturnStatus(payload.returnId, payload.updates, payload.user || 'Admin');
         break;
-      case 'updateClaimStatus':
+      case 'updateclaimstatus':
+      case 'update_claim_status':
         result = updateClaimStatus(payload.claimId, payload.updates, payload.user || 'Admin');
         break;
-      case 'saveSku':
+      case 'savesku':
+      case 'save_sku':
         result = saveSku(payload.data, payload.user || 'Admin');
         break;
-      case 'normalizeVariants':
+      case 'normalizevariants':
+      case 'normalize_variants':
         result = normalizeVariantsFromMaster();
         break;
-      case 'checkDuplicate':
+      case 'checkduplicate':
+      case 'check_duplicate':
         result = checkDuplicate(payload.marketplace, payload.orderId, payload.skuCode);
         break;
-      case 'initializeDatabase':
+      case 'initializedatabase':
+      case 'initialize_database':
         result = initializeSheetsAndHeaders();
         break;
       default:
-        result = { success: false, error: 'Unknown action: ' + action };
+        result = { success: false, error: 'Unknown action: ' + (rawAction || action) };
     }
 
     return createJsonResponse(result);
@@ -740,40 +786,53 @@ function cleanupBlankRows(sheet) {
 
 /**
  * Searches for matching row indices in a given sheet by Return Entry ID or Order ID.
- * Uses both getValues() and getDisplayValues() to guarantee matching regardless of cell formatting.
+ * Robustly matches formatted display values, raw numbers, scientific notation, and trimmed strings.
  * Returns array of 1-indexed sheet row numbers.
  */
 function findRowIndices(sheet, returnId, orderId) {
+  if (!sheet) return [];
   var lastRow = sheet.getLastRow();
   var lastCol = sheet.getLastColumn();
   if (lastRow < 1 || lastCol < 1) return [];
 
   var cleanReturnId = String(returnId || '').trim();
-  var cleanOrderId = String(orderId || '').trim().toUpperCase();
-  var cleanOrdAlpha = cleanOrderId.replace(/[^A-Z0-9]/g, '');
-  var cleanRetAlpha = cleanReturnId.replace(/[^A-Z0-9]/g, '');
+  var cleanOrderId = String(orderId || '').trim();
+  var cleanOrdUpper = cleanOrderId.toUpperCase();
+  var cleanRetUpper = cleanReturnId.toUpperCase();
+  var cleanOrdAlpha = cleanOrdUpper.replace(/[^A-Z0-9]/g, '');
+  var cleanRetAlpha = cleanRetUpper.replace(/[^A-Z0-9]/g, '');
 
   if (!cleanReturnId && !cleanOrderId) return [];
 
+  // Determine header row (row 1, or row 2/3 if row 1 is a title banner)
   var startRow = 1;
-  var row1Values = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-  var isRow1Header = false;
-  for (var h = 0; h < row1Values.length; h++) {
-    var hVal = String(row1Values[h] || '').toUpperCase();
-    if (hVal.indexOf('ORDER') !== -1 || hVal.indexOf('RETURN') !== -1 || hVal.indexOf('SKU') !== -1 || hVal.indexOf('TIMESTAMP') !== -1 || hVal.indexOf('RECEIPT') !== -1) {
-      isRow1Header = true;
-      break;
+  var colOrderIndex = -1;
+  var colReturnIndex = -1;
+
+  var maxHeaderScan = Math.min(lastRow, 3);
+  for (var hRow = 1; hRow <= maxHeaderScan; hRow++) {
+    var rowValues = sheet.getRange(hRow, 1, 1, lastCol).getValues()[0];
+    for (var h = 0; h < rowValues.length; h++) {
+      var hVal = String(rowValues[h] || '').toUpperCase();
+      if (hVal.indexOf('ORDER') !== -1 && colOrderIndex === -1) {
+        colOrderIndex = h;
+        startRow = hRow + 1;
+      }
+      if ((hVal.indexOf('RETURN ENTRY') !== -1 || (hVal.indexOf('RETURN') !== -1 && hVal.indexOf('ID') !== -1)) && colReturnIndex === -1) {
+        colReturnIndex = h;
+        startRow = hRow + 1;
+      }
     }
   }
-  if (isRow1Header) {
-    if (lastRow <= 1) return [];
-    startRow = 2;
-  }
+
+  // Fallback default column indices if headers weren't named
+  if (colReturnIndex === -1) colReturnIndex = 0; // Col 1
+  if (colOrderIndex === -1) colOrderIndex = 7;   // Col 8
 
   var numRows = lastRow - startRow + 1;
   if (numRows <= 0) return [];
 
-  // Read raw values AND formatted display values so numeric IDs or formatted strings match
+  // Read raw values AND formatted display values
   var rawValues = sheet.getRange(startRow, 1, numRows, lastCol).getValues();
   var displayValues = sheet.getRange(startRow, 1, numRows, lastCol).getDisplayValues();
   var matchedIndices = [];
@@ -783,44 +842,46 @@ function findRowIndices(sheet, returnId, orderId) {
     var rowDisp = displayValues[r];
     var matched = false;
 
-    // Check specific primary columns first: Col 1 (Return Entry ID) and Col 8 (Original Order ID)
-    var c1 = String(rowDisp[0] || rowRaw[0] || '').trim();
-    var c8 = String(rowDisp[7] || rowRaw[7] || '').trim();
+    // Helper cell matcher to evaluate a single cell against target Return ID and Order ID
+    function cellMatches(val) {
+      if (val === null || val === undefined) return false;
+      var str = String(val).trim().replace(/^['"\s\u00A0]+|['"\s\u00A0]+$/g, '');
+      if (!str) return false;
+      var strUpper = str.toUpperCase();
 
-    if (cleanReturnId && (c1.toUpperCase() === cleanReturnId.toUpperCase() || (cleanRetAlpha.length >= 6 && c1.replace(/[^A-Z0-9]/g, '').toUpperCase() === cleanRetAlpha))) {
+      // 1. Check Return Entry ID
+      if (cleanRetUpper) {
+        if (strUpper === cleanRetUpper) return true;
+        if (cleanRetAlpha.length >= 6 && strUpper.replace(/[^A-Z0-9]/g, '') === cleanRetAlpha) return true;
+        if (cleanRetUpper.length >= 8 && strUpper.indexOf(cleanRetUpper) !== -1) return true;
+      }
+
+      // 2. Check Order ID
+      if (cleanOrdUpper) {
+        if (strUpper === cleanOrdUpper) return true;
+        var strAlpha = strUpper.replace(/[^A-Z0-9]/g, '');
+        if (cleanOrdAlpha.length >= 4 && strAlpha === cleanOrdAlpha) return true;
+        if (cleanOrdAlpha.length >= 6 && strAlpha.indexOf(cleanOrdAlpha) !== -1) return true;
+        if (cleanOrdUpper.length >= 6 && strUpper.indexOf(cleanOrdUpper) !== -1) return true;
+      }
+
+      // 3. Numeric comparison (e.g. 17123456789 vs 1.71E+10 or number formatting)
+      if (cleanOrderId && !isNaN(cleanOrderId) && !isNaN(str)) {
+        if (parseFloat(cleanOrderId) === parseFloat(str)) return true;
+      }
+
+      return false;
+    }
+
+    // Check designated Return and Order columns first
+    if (colReturnIndex < rowRaw.length && (cellMatches(rowRaw[colReturnIndex]) || cellMatches(rowDisp[colReturnIndex]))) {
       matched = true;
-    } else if (cleanOrderId && (c8.toUpperCase() === cleanOrderId || (cleanOrdAlpha.length >= 4 && c8.replace(/[^A-Z0-9]/g, '').toUpperCase() === cleanOrdAlpha))) {
+    } else if (colOrderIndex < rowRaw.length && (cellMatches(rowRaw[colOrderIndex]) || cellMatches(rowDisp[colOrderIndex]))) {
       matched = true;
     } else {
-      // Fallback: check every cell across the entire row
-      for (var c = 0; c < rowDisp.length; c++) {
-        var vDisp = String(rowDisp[c] || '').trim();
-        var vRaw = String(rowRaw[c] !== null && rowRaw[c] !== undefined ? rowRaw[c] : '').trim();
-        var val = (vDisp || vRaw).toUpperCase();
-        if (!val) continue;
-
-        if (cleanReturnId && val === cleanReturnId.toUpperCase()) {
-          matched = true;
-          break;
-        }
-        if (cleanOrderId && val === cleanOrderId) {
-          matched = true;
-          break;
-        }
-        if (cleanOrderId && cleanOrderId.length >= 6 && val.indexOf(cleanOrderId) !== -1) {
-          matched = true;
-          break;
-        }
-        if (cleanReturnId && cleanReturnId.length >= 8 && val.indexOf(cleanReturnId.toUpperCase()) !== -1) {
-          matched = true;
-          break;
-        }
-        var valAlpha = val.replace(/[^A-Z0-9]/g, '');
-        if (cleanOrdAlpha && cleanOrdAlpha.length >= 4 && (valAlpha === cleanOrdAlpha || (valAlpha.length >= 6 && valAlpha.indexOf(cleanOrdAlpha) !== -1))) {
-          matched = true;
-          break;
-        }
-        if (cleanRetAlpha && cleanRetAlpha.length >= 6 && (valAlpha === cleanRetAlpha || (valAlpha.length >= 8 && valAlpha.indexOf(cleanRetAlpha) !== -1))) {
+      // Full row fallback across all columns
+      for (var c = 0; c < rowRaw.length; c++) {
+        if (cellMatches(rowRaw[c]) || cellMatches(rowDisp[c])) {
           matched = true;
           break;
         }
@@ -863,10 +924,10 @@ function saveReturnRecord(data, operator) {
   var returnEntryId = String(data.returnEntryId || '').trim();
   var orderId = String(data.originalOrderId || '').trim();
 
-  // Look for any existing matching rows in primary sheet
+  // Search for existing matching rows in primary return sheet
   var matchingRows = findRowIndices(sheet, returnEntryId, orderId);
 
-  // If not found in primary sheet, check other candidate return sheets
+  // If not found in primary return sheet, search across all candidate sheets
   var targetSheet = sheet;
   if (matchingRows.length === 0) {
     var allSheets = ss.getSheets();
@@ -884,11 +945,9 @@ function saveReturnRecord(data, operator) {
     }
   }
 
-  // CASE 1: MODIFY & REPLACE EXISTING ITEM IN PLACE (No new line item added!)
+  // CASE 1: MODIFY & REPLACE EXISTING ITEM IN PLACE
   if (matchingRows.length > 0) {
     var primaryRow = matchingRows[0];
-    
-    // Safely read existing values without throwing out-of-bounds error
     var maxColToRead = Math.min(targetSheet.getLastColumn(), 31);
     var existingRow = maxColToRead > 0 ? targetSheet.getRange(primaryRow, 1, 1, maxColToRead).getValues()[0] : [];
     
@@ -934,14 +993,13 @@ function saveReturnRecord(data, operator) {
       dupKey
     ];
 
-    // Ensure sheet has enough columns to hold all 31 fields before updating range
     if (targetSheet.getMaxColumns() < updatedRow.length) {
       targetSheet.insertColumnsAfter(targetSheet.getMaxColumns(), updatedRow.length - targetSheet.getMaxColumns());
     }
 
     targetSheet.getRange(primaryRow, 1, 1, updatedRow.length).setValues([updatedRow]);
 
-    // If there were redundant duplicate rows, delete them from bottom to top
+    // If duplicate copies existed in the sheet, remove them from bottom to top
     if (matchingRows.length > 1) {
       for (var d = matchingRows.length - 1; d >= 1; d--) {
         targetSheet.deleteRow(matchingRows[d]);
@@ -963,13 +1021,17 @@ function saveReturnRecord(data, operator) {
     };
   }
 
-  // CASE 2: BRAND NEW RETURN ENTRY
-  var dupCheck = checkDuplicate(data.marketplace, data.originalOrderId, data.masterSkuCode);
-  if (dupCheck.isDuplicate) {
-    return {
-      success: false,
-      error: 'DUPLICATE SUBMISSION BLOCKED: Order ID "' + data.originalOrderId + '" was already logged on ' + dupCheck.existingDate + ' under Return ID ' + dupCheck.existingReturnId + '.'
-    };
+  // CASE 2: NEW ENTRY (or update of an untracked record)
+  var isExplicitUpdate = Boolean(data.isUpdate) || String(data.action || '').indexOf('update') !== -1;
+
+  if (!isExplicitUpdate) {
+    var dupCheck = checkDuplicate(data.marketplace, data.originalOrderId, data.masterSkuCode);
+    if (dupCheck.isDuplicate) {
+      return {
+        success: false,
+        error: 'DUPLICATE SUBMISSION BLOCKED: Order ID "' + data.originalOrderId + '" was already logged on ' + dupCheck.existingDate + ' under Return ID ' + dupCheck.existingReturnId + '.'
+      };
+    }
   }
 
   if (!returnEntryId) {
@@ -986,7 +1048,7 @@ function saveReturnRecord(data, operator) {
     normalTimestamp,
     data.marketplace || 'Meesho',
     data.returnType || 'Customer Return',
-    data.receiptDate || Utilities.formatDate(now, Session.getScriptTimeZone() || 'Asia/Kolkata', 'yyyy-MM-dd'),
+    data.receiptDate || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kolkata', 'yyyy-MM-dd'),
     data.originalOrderId || '',
     data.marketplaceReturnId || '',
     data.awbTrackingNumber || '',
@@ -1016,14 +1078,16 @@ function saveReturnRecord(data, operator) {
   sheet.appendRow(row);
   SpreadsheetApp.flush();
 
-  logAudit(operator, 'CREATE_RETURN', 'Return_Log', returnEntryId, 'Marketplace: ' + data.marketplace + ', SKU: ' + data.masterSkuCode);
+  logAudit(operator, isExplicitUpdate ? 'UPDATE_RETURN' : 'CREATE_RETURN', 'Return_Log', returnEntryId, 'Marketplace: ' + data.marketplace + ', SKU: ' + data.masterSkuCode);
 
   return {
     success: true,
     returnEntryId: returnEntryId,
     timestamp: normalTimestamp,
     claimEligible: isClaimEligible,
-    message: '✓ Saved new return record "' + returnEntryId + '" to Google Sheet.'
+    message: isExplicitUpdate
+      ? '✓ Record "' + returnEntryId + '" updated in Google Sheet.'
+      : '✓ Saved new return record "' + returnEntryId + '" to Google Sheet.'
   };
 }
 
@@ -1043,7 +1107,7 @@ function deleteReturnRecord(returnId, orderId, operator) {
   var totalDeleted = 0;
   var deletedFromSheets = [];
 
-  // Check the primary Return sheet first!
+  // 1. Check the primary Return sheet first
   var primarySheet = getReturnSheet(ss);
   if (primarySheet && primarySheet.getLastRow() >= 1) {
     var primaryMatches = findRowIndices(primarySheet, cleanRet, cleanOrd);
@@ -1056,28 +1120,27 @@ function deleteReturnRecord(returnId, orderId, operator) {
     }
   }
 
-  // If not found in primary sheet, check other candidate sheets (excluding system sheets)
-  if (totalDeleted === 0) {
-    var allSheets = ss.getSheets();
-    for (var s = 0; s < allSheets.length; s++) {
-      var curSheet = allSheets[s];
-      var sName = curSheet.getName();
+  // 2. Also search all other sheets in the workbook (excluding system sheets)
+  var allSheets = ss.getSheets();
+  for (var s = 0; s < allSheets.length; s++) {
+    var curSheet = allSheets[s];
+    var sName = curSheet.getName();
 
-      if (primarySheet && sName === primarySheet.getName()) continue;
-      if (sName === SHEET_NAMES.AUDIT_LOG || sName === 'Audit_Log') continue;
-      if (sName === SHEET_NAMES.SKU_MASTER || sName === 'SKU_Master' || sName === 'SKU Master') continue;
-      if (sName === SHEET_NAMES.SKU_VARIANTS || sName === 'SKU_Variants') continue;
-      if (sName === SHEET_NAMES.LISTS_CONFIG || sName === 'Lists_Config') continue;
-      if (curSheet.getLastRow() < 1) continue;
+    if (primarySheet && sName === primarySheet.getName()) continue;
+    if (sName === SHEET_NAMES.AUDIT_LOG || sName === 'Audit_Log') continue;
+    if (sName === SHEET_NAMES.SKU_MASTER || sName === 'SKU_Master' || sName === 'SKU Master') continue;
+    if (sName === SHEET_NAMES.SKU_VARIANTS || sName === 'SKU_Variants') continue;
+    if (sName === SHEET_NAMES.LISTS_CONFIG || sName === 'Lists_Config') continue;
+    if (curSheet.getLastRow() < 1) continue;
 
-      var matchedIndices = findRowIndices(curSheet, cleanRet, cleanOrd);
-      if (matchedIndices && matchedIndices.length > 0) {
-        for (var j = matchedIndices.length - 1; j >= 0; j--) {
-          curSheet.deleteRow(matchedIndices[j]);
-          totalDeleted++;
-        }
+    var matchedIndices = findRowIndices(curSheet, cleanRet, cleanOrd);
+    if (matchedIndices && matchedIndices.length > 0) {
+      for (var j = matchedIndices.length - 1; j >= 0; j--) {
+        curSheet.deleteRow(matchedIndices[j]);
+        totalDeleted++;
+      }
+      if (deletedFromSheets.indexOf(sName) === -1) {
         deletedFromSheets.push(sName);
-        break;
       }
     }
   }
@@ -1103,7 +1166,7 @@ function deleteReturnRecord(returnId, orderId, operator) {
       success: true, 
       deletedCount: totalDeleted,
       sheets: deletedFromSheets,
-      message: '✓ Permanently deleted ' + totalDeleted + ' matching return row(s) from ' + deletedFromSheets.join(', ') + ' in Google Sheets.' 
+      message: '✓ Permanently deleted ' + totalDeleted + ' matching return row(s) from [' + deletedFromSheets.join(', ') + '] in Google Sheets.' 
     };
   }
 

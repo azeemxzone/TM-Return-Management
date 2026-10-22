@@ -120,7 +120,7 @@ export default function App() {
 
   const handleDeleteReturn = (returnEntryId: string) => {
     const target = returns.find((r) => r.returnEntryId === returnEntryId);
-    StorageService.deleteReturn(returnEntryId, operatorName, target?.originalOrderId);
+    StorageService.deleteReturn(returnEntryId, operatorName, target?.originalOrderId, false);
     setReturns((prev) => prev.filter((r) => r.returnEntryId !== returnEntryId));
   };
 

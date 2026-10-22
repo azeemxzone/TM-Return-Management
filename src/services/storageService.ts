@@ -640,7 +640,11 @@ export class StorageService {
   }
 
   // Update existing return record
-  static updateReturnRecord(updatedRecord: ReturnRecord, operator: string = 'Warehouse Operator'): boolean {
+  static updateReturnRecord(
+    updatedRecord: ReturnRecord,
+    operator: string = 'Warehouse Operator',
+    triggerSync: boolean = false
+  ): boolean {
     const list = this.getReturns();
     const cleanRetId = (updatedRecord.returnEntryId || '').trim();
     const cleanOrdId = (updatedRecord.originalOrderId || '').trim().toUpperCase();
@@ -661,15 +665,22 @@ export class StorageService {
         updatedRecord.returnEntryId,
         `Order ID: ${updatedRecord.originalOrderId}, Condition: ${updatedRecord.itemCondition}`
       );
-      // Trigger background sync to Google Apps Script as an in-place update
-      this.syncReturnToGas(updatedRecord, true);
+      // Only trigger unawaited background sync if explicitly requested (callers await syncReturnToGas directly)
+      if (triggerSync) {
+        this.syncReturnToGas(updatedRecord, true);
+      }
       return true;
     }
     return false;
   }
 
   // Delete return record if wrongly entered (matches by Return ID or Order ID)
-  static deleteReturn(returnEntryId: string, operator: string = 'Warehouse Operator', orderId?: string): boolean {
+  static deleteReturn(
+    returnEntryId: string,
+    operator: string = 'Warehouse Operator',
+    orderId?: string,
+    triggerSync: boolean = false
+  ): boolean {
     const list = this.getReturns();
     const cleanRetId = (returnEntryId || '').trim();
     const cleanOrdId = (orderId || '').trim().toUpperCase();
@@ -712,14 +723,20 @@ export class StorageService {
       actualReturnId || actualOrderId,
       `Deleted return entry for Order ID: ${actualOrderId || 'Unknown'}`
     );
-    // Trigger deletion sync in Google Sheets backend
-    this.syncDeleteReturnToGas(actualReturnId, actualOrderId, operator);
+    // Only trigger unawaited sync if explicitly requested (deleteReturnAsync handles awaited sync)
+    if (triggerSync) {
+      this.syncDeleteReturnToGas(actualReturnId, actualOrderId, operator);
+    }
     return true;
   }
 
   // Async delete return method that awaits both local storage removal and Google Sheets backend sync
-  static async deleteReturnAsync(returnEntryId: string, operator: string = 'Warehouse Operator', orderId?: string): Promise<{ success: boolean; message?: string }> {
-    this.deleteReturn(returnEntryId, operator, orderId);
+  static async deleteReturnAsync(
+    returnEntryId: string,
+    operator: string = 'Warehouse Operator',
+    orderId?: string
+  ): Promise<{ success: boolean; message?: string }> {
+    this.deleteReturn(returnEntryId, operator, orderId, false);
     return await this.syncDeleteReturnToGas(returnEntryId, orderId, operator);
   }
 
@@ -809,10 +826,6 @@ export class StorageService {
           body: JSON.stringify(mergedPayload),
           mode: 'no-cors'
         });
-        // Also call secondary GET to guarantee processing
-        try {
-          await fetch(directUrl, { method: 'GET', mode: 'no-cors' });
-        } catch {}
         return { success: true, message: 'Request dispatched to Google Apps Script.' };
       }
     } catch (directErr: any) {
@@ -830,8 +843,6 @@ export class StorageService {
       queryParams: {
         returnId: cleanRetId,
         orderId: cleanOrdId,
-        returnEntryId: cleanRetId,
-        originalOrderId: cleanOrdId,
         user: operator
       },
       payload: {
@@ -1194,10 +1205,10 @@ export class StorageService {
     const res = await this.sendGasRequest({
       action: actionName,
       queryParams: {
-        user: returnRecord.createdBy || 'Warehouse Operator',
         returnId: returnRecord.returnEntryId,
         orderId: returnRecord.originalOrderId,
-        data: returnRecord
+        isUpdate: isUpdate ? 'true' : 'false',
+        user: returnRecord.createdBy || 'Warehouse Operator'
       },
       payload: {
         action: actionName,
@@ -1325,8 +1336,9 @@ export class StorageService {
     const res = await this.sendGasRequest({
       action: 'saveClaim',
       queryParams: {
-        user: claimRecord.createdBy || 'Claims Specialist',
-        data: claimRecord
+        claimId: claimRecord.claimId,
+        orderId: claimRecord.orderId,
+        user: claimRecord.createdBy || 'Claims Specialist'
       },
       payload: {
         action: 'saveClaim',
