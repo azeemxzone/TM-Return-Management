@@ -72,7 +72,7 @@ export default function App() {
     const clean = adminUnlockPin.trim();
     const creds = StorageService.getCredentials();
 
-    if (clean === creds.adminPin || clean === '888888' || clean === creds.adminPassword) {
+    if (clean === creds.adminPin || (creds.adminPassword && clean === creds.adminPassword)) {
       const updatedUser: AuthUser = {
         username: 'admin',
         name: currentUser?.name || 'Admin Supervisor',
@@ -88,7 +88,7 @@ export default function App() {
       setGasSubTab('auth_mechanism');
       setActiveTab('gas_deployment');
     } else {
-      setAdminUnlockError('Invalid 6-Digit Admin PIN. (Default Admin PIN: 888888)');
+      setAdminUnlockError('Invalid 6-Digit Admin PIN. Authorization denied.');
     }
   };
 
@@ -366,9 +366,6 @@ export default function App() {
                     }`}
                   />
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Default supervisor PIN is <code className="font-bold text-amber-500">888888</code>
-                </p>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">

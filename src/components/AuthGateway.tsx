@@ -11,7 +11,6 @@ import {
   CheckCircle2, 
   Sun, 
   Moon, 
-  HelpCircle, 
   ChevronDown,
   Info,
   Eye,
@@ -33,7 +32,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
 }) => {
   const isLight = theme === 'light';
 
-  // Form states - Single 6-digit PIN authentication (No multiple modes/tabs)
+  // Form states - Single 6-digit PIN authentication
   const [pin, setPin] = useState<string>('');
   const [showPin, setShowPin] = useState<boolean>(false);
   const [stationId, setStationId] = useState<string>(STATION_PRESETS[0].id);
@@ -42,7 +41,6 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [showCredentialsHint, setShowCredentialsHint] = useState<boolean>(false);
 
   // Admin PIN Management Modal State
   const [showChangePinModal, setShowChangePinModal] = useState<boolean>(false);
@@ -56,20 +54,6 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   useEffect(() => {
     StorageService.initUniversalConfig().catch(() => {});
   }, []);
-
-  const handleQuickPreset = (role: 'operator' | 'admin') => {
-    setErrorMessage(null);
-    const creds = StorageService.getCredentials();
-    if (role === 'operator') {
-      setPin(creds.operatorPin || '123456');
-      setOperatorName('Zeeshan K');
-      setStationId(STATION_PRESETS[0].id);
-    } else {
-      setPin(creds.adminPin || '888888');
-      setOperatorName('Admin Supervisor');
-      setStationId(STATION_PRESETS[0].id);
-    }
-  };
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,9 +73,9 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         setSuccessMessage(result.message || '6-Digit PIN Authorized Successfully!');
         setTimeout(() => {
           onLoginSuccess(result.user!);
-        }, 400);
+        }, 350);
       } else {
-        setErrorMessage(result.message || 'Invalid 6-Digit PIN. Please try again.');
+        setErrorMessage(result.message || 'Invalid Station PIN. Authorization denied.');
         setIsSubmitting(false);
       }
     }, 200);
@@ -146,7 +130,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                 TABBY<span className="text-amber-500">MART</span>
               </span>
               <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                6-Digit PIN Access
+                Authorized Station Access
               </span>
             </div>
             <p className="text-[11px] text-slate-500 -mt-0.5">
@@ -156,7 +140,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Admin Change PINs quick button */}
+          {/* Admin Change PINs button */}
           <button
             type="button"
             onClick={() => {
@@ -220,10 +204,10 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                 <Lock className="w-6 h-6" />
               </div>
               <h1 className={`text-xl font-extrabold tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                Station PIN Authorization
+                Station Authorization
               </h1>
               <p className={`text-xs mt-1 font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Enter your 6-digit access PIN to authorize this station
+                Enter your 6-digit access PIN to unlock this warehouse station
               </p>
             </div>
 
@@ -284,7 +268,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                       type="text"
                       value={operatorName}
                       onChange={(e) => setOperatorName(e.target.value)}
-                      placeholder="e.g. Zeeshan K or Station 1"
+                      placeholder="e.g. Zeeshan K or Station Operator"
                       className={`w-full text-xs font-medium rounded-xl border pl-9 pr-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500 ${
                         isLight
                           ? 'bg-slate-50 border-slate-300 text-slate-900'
@@ -295,15 +279,12 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                   </div>
                 </div>
 
-                {/* 6-Digit PIN Input */}
+                {/* 6-Digit PIN Input (No PIN displayed in popup or label) */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className={`text-xs font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                       6-Digit Access PIN
                     </label>
-                    <span className="text-[11px] text-amber-500 font-medium">
-                      Operator: 123456 | Admin: 888888
-                    </span>
                   </div>
                   <div className="relative">
                     <Key className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400 pointer-events-none" />
@@ -373,86 +354,16 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                 </button>
               </form>
 
-              {/* 1-Click Fast Presets */}
-              <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800">
-                <div className="flex items-center justify-between mb-2.5">
-                  <span className={`text-[11px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    1-Click 6-Digit Station Presets
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowCredentialsHint(!showCredentialsHint)}
-                    className="text-[11px] text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
-                  >
-                    <HelpCircle className="w-3 h-3" />
-                    <span>{showCredentialsHint ? 'Hide Default PINs' : 'View Default PINs'}</span>
-                  </button>
+              {/* Station Security Badges */}
+              <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 text-xs flex items-center gap-2.5 text-slate-600 dark:text-slate-300">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>Individual 6-digit access PINs for Floor Operators and Admin Supervisors.</span>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => handleQuickPreset('operator')}
-                    className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                      isLight
-                        ? 'bg-slate-50 hover:bg-amber-50/60 border-slate-200 hover:border-amber-300 text-slate-800'
-                        : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/80 hover:border-amber-500/40 text-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-amber-500 text-xs">Floor Operator</span>
-                      <span className="text-[11px] font-mono font-bold bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-600 dark:text-amber-400">
-                        123456
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mt-1">Receipt, QC, Claims</p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleQuickPreset('admin')}
-                    className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                      isLight
-                        ? 'bg-slate-50 hover:bg-amber-50/60 border-slate-200 hover:border-amber-300 text-slate-800'
-                        : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/80 hover:border-amber-500/40 text-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-sky-500 text-xs">Admin Supervisor</span>
-                      <span className="text-[11px] font-mono font-bold bg-sky-500/20 px-1.5 py-0.5 rounded text-sky-600 dark:text-sky-400">
-                        888888
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mt-1">Full access + GAS Sync</p>
-                  </button>
-                </div>
-
-                {showCredentialsHint && (
-                  <div
-                    className={`mt-3 p-3 rounded-xl border text-[11px] leading-relaxed animate-fadeIn ${
-                      isLight
-                        ? 'bg-amber-50/80 border-amber-200 text-amber-950'
-                        : 'bg-amber-950/20 border-amber-800/40 text-amber-200'
-                    }`}
-                  >
-                    <div className="font-bold flex items-center gap-1.5 mb-1.5 text-amber-600 dark:text-amber-400">
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>System 6-Digit Access Keys:</span>
-                    </div>
-                    <div className="space-y-1 font-mono text-[11px]">
-                      <div>
-                        • <strong>Operator PIN:</strong> <code className="bg-amber-200/50 dark:bg-amber-900/50 px-1.5 py-0.5 rounded font-bold">123456</code> (Floor access)
-                      </div>
-                      <div>
-                        • <strong>Admin PIN:</strong> <code className="bg-amber-200/50 dark:bg-amber-900/50 px-1.5 py-0.5 rounded font-bold">888888</code> (Full control &amp; PIN management)
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
-            {/* Privacy & Cloud Architecture Note for "Database access as myself only" */}
+            {/* Privacy & Cloud Architecture Note */}
             <div
               className={`p-4 border-t text-[11px] flex items-start gap-2.5 ${
                 isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950 border-slate-800/80 text-slate-400'
@@ -470,7 +381,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         </div>
       </main>
 
-      {/* Admin Change PINs Modal */}
+      {/* Admin Change PINs Modal (No PIN defaults shown in popup) */}
       {showChangePinModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
           <div
@@ -490,13 +401,13 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                 <Key className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-extrabold text-base">Change 6-Digit Access PINs</h3>
+                <h3 className="font-extrabold text-base">Change Station Access PINs</h3>
                 <p className="text-xs text-slate-500">Admin Authorization Required</p>
               </div>
             </div>
 
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
-              As Administrator, you can customize the 6-digit PIN for Floor Operators and the separate 6-digit Admin PIN. Changes are instantly saved universally.
+              As Administrator, you can customize the 6-digit PIN for Floor Operators and the separate 6-digit Admin PIN. Changes are stored in the backend and apply across all stations.
             </p>
 
             {changePinError && (
@@ -523,7 +434,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                   maxLength={10}
                   value={adminAuthPin}
                   onChange={(e) => setAdminAuthPin(e.target.value)}
-                  placeholder="Enter current Admin PIN (default: 888888)"
+                  placeholder="Enter current Admin PIN"
                   className={`w-full font-mono text-sm px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
                     isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
                   }`}
@@ -541,13 +452,13 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                   maxLength={6}
                   value={newOperatorPin}
                   onChange={(e) => setNewOperatorPin(e.target.value.replace(/\D/g, ''))}
-                  placeholder="e.g. 123456"
+                  placeholder="••••••"
                   className={`w-full font-mono text-center tracking-widest text-base font-bold px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
                     isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
                   }`}
                   required
                 />
-                <p className="text-[10px] text-slate-500 mt-1">Must be exactly 6 digits</p>
+                <p className="text-[10px] text-slate-500 mt-1">Must be exactly 6 numeric digits</p>
               </div>
 
               <div>
@@ -560,13 +471,13 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                   maxLength={6}
                   value={newAdminPin}
                   onChange={(e) => setNewAdminPin(e.target.value.replace(/\D/g, ''))}
-                  placeholder="e.g. 888888"
+                  placeholder="••••••"
                   className={`w-full font-mono text-center tracking-widest text-base font-bold px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-sky-500 ${
                     isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
                   }`}
                   required
                 />
-                <p className="text-[10px] text-slate-500 mt-1">Must be exactly 6 digits</p>
+                <p className="text-[10px] text-slate-500 mt-1">Must be exactly 6 numeric digits</p>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3">

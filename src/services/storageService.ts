@@ -339,7 +339,31 @@ export class StorageService {
       }
     }
 
-    // 2. Fetch universal configuration from server or static /gas-config.json
+    // 2. Possibility 1: If sheetId exists, attempt to pull Config tab from Google Sheets
+    const activeSheetId = localStorage.getItem(KEYS.SHEET_ID) || '';
+    if (activeSheetId) {
+      try {
+        const sheetConfig = await this.fetchSheetConfigTab(activeSheetId);
+        if (sheetConfig) {
+          const remoteGasUrl = sheetConfig.gasUrl || sheetConfig.Web_App_URL || sheetConfig.Gas_URL;
+          if (remoteGasUrl && remoteGasUrl.startsWith('https://script.google.com')) {
+            localStorage.setItem(KEYS.GAS_URL, remoteGasUrl.trim());
+          }
+          const remotePass = sheetConfig.warehousePasscode || sheetConfig.Passcode;
+          if (remotePass) {
+            localStorage.setItem(KEYS.PASSCODE, remotePass.trim());
+          }
+          if (sheetConfig.adminPin || sheetConfig.operatorPin) {
+            this.saveCredentials({
+              ...(sheetConfig.adminPin ? { adminPin: sheetConfig.adminPin } : {}),
+              ...(sheetConfig.operatorPin ? { operatorPin: sheetConfig.operatorPin } : {})
+            });
+          }
+        }
+      } catch {}
+    }
+
+    // 3. Fetch universal configuration from server or static /gas-config.json
     try {
       let res: Response | null = await fetch('/api/gas-config').catch(() => null);
       if (!res || !res.ok) {
@@ -376,6 +400,40 @@ export class StorageService {
       console.warn('[StorageService]: Failed to fetch universal server config, using local cache', e);
     }
     return { gasUrl: this.getGasUrl(), credentials: this.getCredentials() };
+  }
+
+  /**
+   * Possibility 1: Read public Google Sheet Config tab via Google Visualization API
+   * Format: https://docs.google.com/spreadsheets/d/<SHEET_ID>/gviz/tq?tqx=out:json&sheet=Config
+   */
+  static async fetchSheetConfigTab(sheetId: string): Promise<Record<string, string> | null> {
+    if (!sheetId || !sheetId.trim()) return null;
+    try {
+      const cleanId = sheetId.trim();
+      const url = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?tqx=out:json&sheet=Config`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const text = await res.text();
+      const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]+)\);/);
+      if (!match || !match[1]) return null;
+      const json = JSON.parse(match[1]);
+      const table = json.table;
+      if (!table || !table.rows) return null;
+
+      const configMap: Record<string, string> = {};
+      for (const row of table.rows) {
+        if (!row.c || row.c.length < 2) continue;
+        const key = row.c[0]?.v !== undefined ? String(row.c[0].v).trim() : '';
+        const val = row.c[1]?.v !== undefined ? String(row.c[1].v).trim() : '';
+        if (key && val) {
+          configMap[key] = val;
+        }
+      }
+      return configMap;
+    } catch (e) {
+      console.warn('[StorageService]: Could not read Google Sheet Config tab', e);
+      return null;
+    }
   }
 
   /**
@@ -476,19 +534,27 @@ export class StorageService {
     }
   }
 
-  static saveCredentials(creds: Partial<StoredCredentials>): void {
+  static async saveCredentialsAsync(creds: Partial<StoredCredentials>): Promise<{ success: boolean; message: string }> {
     const current = this.getCredentials();
     const updated = { ...current, ...creds };
     localStorage.setItem(KEYS.CUSTOM_CREDS, JSON.stringify(updated));
 
     // Save universally to the server config so updated PINs apply across all stations
     try {
-      fetch('/api/gas-config', {
+      const res = await fetch('/api/gas-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ credentials: updated })
-      }).catch(() => {});
+      });
+      if (res.ok) {
+        return { success: true, message: 'Station credentials saved to backend and active universally.' };
+      }
     } catch {}
+    return { success: true, message: 'Station credentials saved to local storage.' };
+  }
+
+  static saveCredentials(creds: Partial<StoredCredentials>): void {
+    this.saveCredentialsAsync(creds).catch(() => {});
   }
 
   /**
@@ -536,7 +602,7 @@ export class StorageService {
 
     return {
       success: true,
-      message: '✓ Both 6-Digit Station PINs updated successfully and active universally across all stations!'
+      message: '✓ Both 6-Digit Station PINs updated successfully and stored in the backend. Factory default PINs are nullified.'
     };
   }
 
@@ -604,9 +670,12 @@ export class StorageService {
     }
 
     const creds = this.getCredentials();
+    const activeAdminPin = (creds.adminPin || '').trim();
+    const activeOpPin = (creds.operatorPin || '').trim();
 
-    // Check Admin PIN (6-digit, default 888888)
-    if (cleanPin === creds.adminPin || cleanPin === '888888' || cleanPin === creds.adminPassword) {
+    // Check Admin PIN - STRICTLY matches active adminPin (or adminPassword if configured)
+    // Default 888888 is nullified if adminPin has been changed!
+    if (cleanPin === activeAdminPin || (creds.adminPassword && cleanPin === creds.adminPassword)) {
       const user: AuthUser = {
         username: 'admin',
         name: customOperatorName?.trim() || 'Admin Supervisor',
@@ -619,8 +688,9 @@ export class StorageService {
       return { success: true, user, message: 'Welcome back, Administrator. Full system unlocked.' };
     }
 
-    // Check Operator PIN (6-digit, default 123456)
-    if (cleanPin === creds.operatorPin || cleanPin === '123456') {
+    // Check Operator PIN - STRICTLY matches active operatorPin (or operatorPassword if configured)
+    // Default 123456 is nullified if operatorPin has been changed!
+    if (cleanPin === activeOpPin || (creds.operatorPassword && cleanPin === creds.operatorPassword)) {
       const user: AuthUser = {
         username: 'operator',
         name: customOperatorName?.trim() || 'Zeeshan K',
@@ -635,7 +705,7 @@ export class StorageService {
 
     return {
       success: false,
-      message: 'Invalid 6-Digit PIN. Default Operator PIN is 123456 (Admin PIN is 888888).'
+      message: 'Invalid 6-Digit PIN. Authorization denied.'
     };
   }
 

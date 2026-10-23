@@ -253,6 +253,104 @@ export const ReturnsForm: React.FC<ReturnsFormProps> = ({
   // 6. Barcode Scanner Modal State
   const [scannerTargetField, setScannerTargetField] = useState<'sku' | 'order' | 'returnId' | 'awb' | null>(null);
 
+  // Global Handheld Barcode Scanner Gun Buffer Listener (Captures USB/Bluetooth scanner guns anywhere on the form)
+  const formKeyBufferRef = useRef<string>('');
+  const formLastKeyTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    const handleFormGlobalKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if a modal is open
+      if (scannerTargetField || deleteConfirmTarget || savedModalData || isPasteModalOpen) {
+        return;
+      }
+
+      const activeTag = document.activeElement?.tagName?.toLowerCase();
+      const isTextarea = activeTag === 'textarea';
+
+      // If Enter key received:
+      if (e.key === 'Enter') {
+        const buffered = formKeyBufferRef.current.trim();
+        formKeyBufferRef.current = '';
+
+        if (buffered.length >= 2) {
+          e.preventDefault();
+          e.stopPropagation();
+          playSaveChime();
+
+          // 1. Check if barcode matches SKU
+          const cleanUp = buffered.toUpperCase();
+          const matchedVariant = skuVariants.find((v) => v.variantCode.toUpperCase() === cleanUp);
+          const matchedMaster = skuMaster.find((m) => m.skuCode.toUpperCase() === cleanUp);
+          if (matchedVariant || matchedMaster) {
+            const master = matchedMaster || skuMaster.find((m) => m.skuCode === matchedVariant?.masterSkuCode);
+            if (master) {
+              selectSkuItem(master, matchedVariant?.variantCode);
+              setStatusToast({ type: 'success', text: `✓ Barcode Scanner detected SKU: ${master.skuCode}` });
+              setTimeout(() => setStatusToast(null), 3500);
+              return;
+            }
+          }
+
+          // 2. Check if courier AWB
+          if (cleanUp.startsWith('DELHIVERY') || cleanUp.startsWith('ATS') || cleanUp.startsWith('ECOM')) {
+            setAwb(buffered);
+            setStatusToast({ type: 'success', text: `✓ Barcode Scanner detected AWB: ${buffered}` });
+            setTimeout(() => setStatusToast(null), 3500);
+            return;
+          }
+
+          // 3. If Order ID is empty, populate Order ID
+          if (!orderId.trim()) {
+            setOrderId(buffered);
+            setStatusToast({ type: 'success', text: `✓ Barcode Scanner detected Order ID: ${buffered}` });
+            setTimeout(() => setStatusToast(null), 3500);
+            const retEl = document.getElementById('returnIdInput');
+            if (retEl) retEl.focus();
+            return;
+          }
+
+          // 4. If Order ID is filled, populate Return ID
+          if (!returnId.trim()) {
+            setReturnId(buffered);
+            setStatusToast({ type: 'success', text: `✓ Barcode Scanner detected Return ID: ${buffered}` });
+            setTimeout(() => setStatusToast(null), 3500);
+            return;
+          }
+
+          // 5. If both are filled, populate AWB
+          if (!awb.trim()) {
+            setAwb(buffered);
+            setStatusToast({ type: 'success', text: `✓ Barcode Scanner detected AWB: ${buffered}` });
+            setTimeout(() => setStatusToast(null), 3500);
+            return;
+          }
+
+          // Fallback: put into Order ID and notify
+          setOrderId(buffered);
+          setStatusToast({ type: 'success', text: `✓ Barcode Scanner read: ${buffered}` });
+          setTimeout(() => setStatusToast(null), 3500);
+          return;
+        }
+      }
+
+      // Collect rapid character inputs (< 160ms interval characteristic of barcode scanner guns)
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey && !isTextarea) {
+        const now = Date.now();
+        if (now - formLastKeyTimeRef.current > 160) {
+          formKeyBufferRef.current = e.key;
+        } else {
+          formKeyBufferRef.current += e.key;
+        }
+        formLastKeyTimeRef.current = now;
+      }
+    };
+
+    window.addEventListener('keydown', handleFormGlobalKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleFormGlobalKeyDown, true);
+    };
+  }, [scannerTargetField, deleteConfirmTarget, savedModalData, isPasteModalOpen, orderId, returnId, awb, skuVariants, skuMaster]);
+
   // Check for existing records or duplicates whenever Order ID changes (Request 3)
   useEffect(() => {
     const cleanOrder = orderId.trim();
@@ -1234,6 +1332,13 @@ export const ReturnsForm: React.FC<ReturnsFormProps> = ({
                     required
                     value={orderId}
                     onChange={(e) => setOrderId(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const retEl = document.getElementById('returnIdInput');
+                        if (retEl) retEl.focus();
+                      }
+                    }}
                     placeholder="e.g. 402-1928312-991283"
                     className={`w-full rounded-xl pl-3.5 pr-24 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 border ${
                       isLight
@@ -1312,10 +1417,18 @@ export const ReturnsForm: React.FC<ReturnsFormProps> = ({
                 </label>
                 <div className="relative flex items-center">
                   <input
+                    id="returnIdInput"
                     type="text"
                     required
                     value={returnId}
                     onChange={(e) => setReturnId(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const awbEl = document.getElementById('awbInput');
+                        if (awbEl) awbEl.focus();
+                      }
+                    }}
                     placeholder="e.g. RET-MSH-99214"
                     className={`w-full rounded-xl pl-3.5 pr-24 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 border ${
                       isLight
@@ -1343,6 +1456,7 @@ export const ReturnsForm: React.FC<ReturnsFormProps> = ({
                 </label>
                 <div className="relative flex items-center">
                   <input
+                    id="awbInput"
                     type="text"
                     value={awb}
                     onChange={(e) => setAwb(e.target.value)}

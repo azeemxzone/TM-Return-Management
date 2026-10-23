@@ -1451,7 +1451,7 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
             )}
 
             <form
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 const cleanOp = operatorPin.trim();
                 const cleanAdm = adminPin.trim();
@@ -1465,12 +1465,14 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
                   return;
                 }
 
-                StorageService.saveCredentials({
+                await StorageService.saveCredentialsAsync({
                   adminPin: cleanAdm,
-                  operatorPin: cleanOp
+                  operatorPin: cleanOp,
+                  adminPassword: adminPassword.trim() || undefined,
+                  operatorPassword: operatorPassword.trim() || undefined
                 });
-                setCredsSavedToast('✓ 6-Digit Station PINs updated and synced universally across all browsers and stations!');
-                setTimeout(() => setCredsSavedToast(null), 4000);
+                setCredsSavedToast('✓ Station PINs & Passwords updated and stored in the backend! Default password (888888) is now nullified.');
+                setTimeout(() => setCredsSavedToast(null), 5000);
               }}
               className="space-y-4"
             >
@@ -1481,15 +1483,15 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
                     <span className="font-bold text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
                       <span>⚡ Floor Operator 6-Digit PIN</span>
                     </span>
-                    <span className="text-[10px] text-slate-400 font-mono font-bold">Default: 123456</span>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-bold">Active</span>
                   </div>
                   <input
-                    type="text"
+                    type="password"
                     inputMode="numeric"
                     value={operatorPin}
                     onChange={(e) => setOperatorPin(e.target.value.replace(/\D/g, ''))}
                     maxLength={6}
-                    placeholder="123456"
+                    placeholder="••••••"
                     className={`w-full font-mono font-bold text-center tracking-widest text-base rounded-xl px-3 py-2.5 border focus:outline-none focus:ring-2 focus:ring-amber-500 ${
                       isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
                     }`}
@@ -1506,15 +1508,15 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
                     <span className="font-bold text-xs text-sky-600 dark:text-sky-400 flex items-center gap-1.5">
                       <span>👑 Admin Supervisor 6-Digit PIN</span>
                     </span>
-                    <span className="text-[10px] text-slate-400 font-mono font-bold">Default: 888888</span>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-bold">Active</span>
                   </div>
                   <input
-                    type="text"
+                    type="password"
                     inputMode="numeric"
                     value={adminPin}
                     onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, ''))}
                     maxLength={6}
-                    placeholder="888888"
+                    placeholder="••••••"
                     className={`w-full font-mono font-bold text-center tracking-widest text-base rounded-xl px-3 py-2.5 border focus:outline-none focus:ring-2 focus:ring-sky-500 ${
                       isLight ? 'bg-slate-50 border-slate-300' : 'bg-slate-800 border-slate-700 text-white'
                     }`}
@@ -1529,14 +1531,14 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
               <div className="flex items-center justify-between pt-2">
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     setAdminPin('888888');
                     setOperatorPin('123456');
-                    StorageService.saveCredentials({
+                    await StorageService.saveCredentialsAsync({
                       adminPin: '888888',
                       operatorPin: '123456'
                     });
-                    setCredsSavedToast('✓ Reset 6-digit PINs to factory defaults (123456 / 888888).');
+                    setCredsSavedToast('✓ Reset 6-digit PINs to factory defaults.');
                     setTimeout(() => setCredsSavedToast(null), 3500);
                   }}
                   className={`text-xs font-semibold px-3 py-2 rounded-xl border transition cursor-pointer ${
@@ -1550,7 +1552,7 @@ export const GasDeploymentCenter: React.FC<GasDeploymentCenterProps> = ({ theme 
                   type="submit"
                   className="px-5 py-2.5 rounded-xl font-bold text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition cursor-pointer"
                 >
-                  Save Universal 6-Digit PINs
+                  Save &amp; Nullify Default PINs
                 </button>
               </div>
             </form>
